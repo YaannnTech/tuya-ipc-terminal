@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -295,24 +296,36 @@ func (s *RTSPServer) findCamera(path string) (*storage.CameraInfo, *storage.User
 		return nil, nil, err
 	}
 
-	// Find camera by RTSP path
-	for _, camera := range cameras {
-		if camera.RTSPPath == path {
-			// Get user for this camera
-			users, err := s.storageManager.ListUsers()
-			if err != nil {
-				continue
-			}
+	camera := findCameraByRTSPPath(cameras, path)
+	if camera == nil {
+		return nil, nil, nil
+	}
 
-			for _, user := range users {
-				if user.UserKey == camera.UserKey {
-					return &camera, &user, nil
-				}
-			}
+	users, err := s.storageManager.ListUsers()
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range users {
+		if users[i].UserKey == camera.UserKey {
+			return camera, &users[i], nil
 		}
 	}
 
 	return nil, nil, nil
+}
+
+func findCameraByRTSPPath(cameras []storage.CameraInfo, path string) *storage.CameraInfo {
+	for i := range cameras {
+		if cameras[i].RTSPPath == path {
+			return &cameras[i]
+		}
+	}
+	for i := range cameras {
+		if strings.EqualFold(cameras[i].RTSPPath, path) {
+			return &cameras[i]
+		}
+	}
+	return nil
 }
 
 func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolution string, user *storage.UserSession) (*CameraStream, error) {

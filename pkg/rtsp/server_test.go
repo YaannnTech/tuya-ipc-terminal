@@ -4,7 +4,25 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"tuya-ipc-terminal/pkg/storage"
 )
+
+func TestFindCameraByRTSPPathIgnoresCaseWhenNeeded(t *testing.T) {
+	cameras := []storage.CameraInfo{{RTSPPath: "/Keller"}}
+
+	if got := findCameraByRTSPPath(cameras, "/keller"); got != &cameras[0] {
+		t.Fatalf("case-insensitive path lookup returned %p, want %p", got, &cameras[0])
+	}
+}
+
+func TestFindCameraByRTSPPathPrefersExactMatch(t *testing.T) {
+	cameras := []storage.CameraInfo{{RTSPPath: "/KELLER"}, {RTSPPath: "/Keller"}}
+
+	if got := findCameraByRTSPPath(cameras, "/Keller"); got != &cameras[1] {
+		t.Fatalf("path lookup returned %p, want exact match %p", got, &cameras[1])
+	}
+}
 
 func TestRemoveClientDoesNotHoldServerLockDuringStreamCleanup(t *testing.T) {
 	stream := &CameraStream{clients: make(map[string]*RTSPClient)}
