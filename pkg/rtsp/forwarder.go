@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"tuya-ipc-terminal/pkg/core"
 	"tuya-ipc-terminal/pkg/utils"
@@ -26,12 +27,12 @@ type RTPForwarder struct {
 	mutex   sync.RWMutex
 
 	// RTP session info
-	videoSSRC uint32
-	audioSSRC uint32
+	videoSSRC atomic.Uint32
+	audioSSRC atomic.Uint32
 
 	// Packet count
-	firstVideoPacket bool
-	firstAudioPacket bool
+	firstVideoPacket atomic.Bool
+	firstAudioPacket atomic.Bool
 
 	OnBackchannelAudio func(*rtp.Packet)
 }
@@ -65,17 +66,15 @@ type RTPClient struct {
 	audioRTPChannel     byte
 	backAudioRTPChannel byte
 
-	lastActivity time.Time
+	lastActivity atomic.Int64
 }
 
 func NewRTPForwarder() *RTPForwarder {
-	return &RTPForwarder{
-		clients:          make(map[string]*RTPClient),
-		videoSSRC:        0, // Default SSRC for video
-		audioSSRC:        1, // Default SSRC for audio
-		firstVideoPacket: true,
-		firstAudioPacket: true,
-	}
+	forwarder := &RTPForwarder{clients: make(map[string]*RTPClient)}
+	forwarder.audioSSRC.Store(1)
+	forwarder.firstVideoPacket.Store(true)
+	forwarder.firstAudioPacket.Store(true)
+	return forwarder
 }
 
 func (rf *RTPForwarder) AddUDPClient(sessionID, clientHost string, videoRTPPort, audioRTPPort int) error {
@@ -114,7 +113,7 @@ func (rf *RTPForwarder) AddUDPClient(sessionID, clientHost string, videoRTPPort,
 
 	client.videoRTPPort = videoRTPPort
 	client.audioRTPPort = audioRTPPort
-	client.lastActivity = time.Now()
+	client.lastActivity.Store(time.Now().UnixNano())
 	rf.clients[sessionID] = client
 
 	core.Logger.Trace().Msgf("Added UDP RTP client %s at %s (video port:%d, audio port:%d)",
@@ -189,7 +188,7 @@ func (rf *RTPForwarder) AddTCPClient(sessionID string, conn net.Conn, videoRTPCh
 		existingClient.videoRTPChannel = videoRTPChannel
 		existingClient.audioRTPChannel = audioRTPChannel
 		existingClient.backAudioRTPChannel = backAudioRTPChannel
-		existingClient.lastActivity = time.Now()
+		existingClient.lastActivity.Store(time.Now().UnixNano())
 		return nil
 	}
 
@@ -200,8 +199,8 @@ func (rf *RTPForwarder) AddTCPClient(sessionID string, conn net.Conn, videoRTPCh
 		videoRTPChannel:     videoRTPChannel,
 		audioRTPChannel:     audioRTPChannel,
 		backAudioRTPChannel: backAudioRTPChannel,
-		lastActivity:        time.Now(),
 	}
+	client.lastActivity.Store(time.Now().UnixNano())
 
 	rf.clients[sessionID] = client
 
@@ -256,14 +255,13 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 
 	// Forward to all clients
 	for sessionID, client := range rf.clients {
-		client.lastActivity = time.Now()
+		client.lastActivity.Store(time.Now().UnixNano())
 
 		if client.transportMode == TransportUDP {
 			if client.videoConn != nil {
 				if _, err := client.videoConn.Write(data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to UDP client %s", sessionID)
-				} else if rf.firstVideoPacket {
-					rf.firstVideoPacket = false
+				} else if rf.firstVideoPacket.CompareAndSwap(true, false) {
 					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to UDP client %s on port %d (PT %d->96, SSRC %d, sequence %d, timestamp %d, %d bytes)",
 						sessionID, client.videoRTPPort, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
@@ -272,8 +270,7 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 			if client.tcpConn != nil {
 				if err := rf.sendInterleavedRTP(client.tcpConn, client.videoRTPChannel, data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to TCP client %s", sessionID)
-				} else if rf.firstVideoPacket {
-					rf.firstVideoPacket = false
+				} else if rf.firstVideoPacket.CompareAndSwap(true, false) {
 					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to TCP client %s on channel %d (PT %d->96, SSRC %d, sequence %d, timestamp %d, %d bytes)",
 						sessionID, client.videoRTPChannel, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
@@ -299,14 +296,13 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 
 	// Forward to all clients
 	for sessionID, client := range rf.clients {
-		client.lastActivity = time.Now()
+		client.lastActivity.Store(time.Now().UnixNano())
 
 		if client.transportMode == TransportUDP {
 			if client.audioConn != nil {
 				if _, err := client.audioConn.Write(data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding audio packet to UDP client %s", sessionID)
-				} else if rf.firstAudioPacket {
-					rf.firstAudioPacket = false
+				} else if rf.firstAudioPacket.CompareAndSwap(true, false) {
 					core.Logger.Trace().Msgf("Successfully sent first audio packet to UDP client %s on port %d",
 						sessionID, client.audioRTPPort)
 				}
@@ -315,8 +311,7 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 			if client.tcpConn != nil {
 				if err := rf.sendInterleavedRTP(client.tcpConn, client.audioRTPChannel, data); err != nil {
 					core.Logger.Error().Err(err).Msgf("Error forwarding audio packet to TCP client %s", sessionID)
-				} else if rf.firstAudioPacket {
-					rf.firstAudioPacket = false
+				} else if rf.firstAudioPacket.CompareAndSwap(true, false) {
 					core.Logger.Trace().Msgf("Successfully sent first audio packet to TCP client %s on channel %d",
 						sessionID, client.audioRTPChannel)
 				}
@@ -327,12 +322,12 @@ func (rf *RTPForwarder) ForwardAudioPacket(packet *rtp.Packet) {
 
 func (rf *RTPForwarder) Stop() {
 	// Reset SSRCs
-	rf.videoSSRC = 0
-	rf.audioSSRC = 1
+	rf.videoSSRC.Store(0)
+	rf.audioSSRC.Store(1)
 
 	// Reset first packet flags
-	rf.firstVideoPacket = true
-	rf.firstAudioPacket = true
+	rf.firstVideoPacket.Store(true)
+	rf.firstAudioPacket.Store(true)
 
 	// Clear all clients
 	for sessionID := range rf.clients {
@@ -356,7 +351,7 @@ func (rf *RTPForwarder) CleanupInactiveClients(timeout time.Duration) {
 	var toRemove []string
 
 	for sessionID, client := range rf.clients {
-		if now.Sub(client.lastActivity) > timeout {
+		if now.Sub(time.Unix(0, client.lastActivity.Load())) > timeout {
 			toRemove = append(toRemove, sessionID)
 		}
 	}

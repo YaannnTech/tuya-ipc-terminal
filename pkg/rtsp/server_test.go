@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -133,6 +134,35 @@ func TestRemoveClientDoesNotHoldServerLockDuringStreamCleanup(t *testing.T) {
 	t.Fatal("client cleanup kept the server lock while waiting for the stream lock")
 }
 
+func TestCleanupInactiveStreamsSynchronizesWithClientActivity(t *testing.T) {
+	stream := &CameraStream{
+		camera:       &storage.CameraInfo{DeviceName: "Keller"},
+		clients:      make(map[string]*RTSPClient),
+		starting:     true,
+		lastActivity: time.Now(),
+	}
+	server := &RTSPServer{
+		streams: map[string]*CameraStream{"Keller-hd": stream},
+	}
+
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		for i := 0; i < 1000; i++ {
+			stream.AddClient(&RTSPClient{session: "client"})
+			stream.RemoveClient("client")
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		for i := 0; i < 1000; i++ {
+			server.cleanupInactiveStreams()
+		}
+	}()
+	workers.Wait()
+}
+
 func TestUDPForwarderSendsPacketsToRTSPPeerAddress(t *testing.T) {
 	peerAddr, err := net.ResolveUDPAddr("udp", "127.0.0.2:0")
 	if err != nil {
@@ -206,5 +236,35 @@ func TestTCPForwarderUsesSDPVideoPayloadType(t *testing.T) {
 	}
 	if forwarded.PayloadType != 96 {
 		t.Fatalf("forwarded TCP payload type = %d, want SDP payload type 96", forwarded.PayloadType)
+	}
+}
+
+func TestConcurrentAudioAndVideoForwardingIsRaceSafe(t *testing.T) {
+	forwarder := NewRTPForwarder()
+	forwarder.clients["client"] = &RTPClient{
+		sessionID:     "client",
+		transportMode: TransportUDP,
+	}
+	videoPacket := &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 95}, Payload: []byte{1}}
+	audioPacket := &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 0}, Payload: []byte{1}}
+
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() {
+		defer workers.Done()
+		for i := 0; i < 1000; i++ {
+			forwarder.ForwardVideoPacket(videoPacket)
+		}
+	}()
+	go func() {
+		defer workers.Done()
+		for i := 0; i < 1000; i++ {
+			forwarder.ForwardAudioPacket(audioPacket)
+		}
+	}()
+	workers.Wait()
+
+	if forwarder.clients["client"].lastActivity.Load() == 0 {
+		t.Fatal("concurrent forwarding did not update client activity")
 	}
 }

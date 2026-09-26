@@ -174,9 +174,11 @@ func (s *RTSPServer) GetStats() ServerStats {
 
 	activeStreams := 0
 	for _, stream := range s.streams {
+		stream.mutex.RLock()
 		if stream.active {
 			activeStreams++
 		}
+		stream.mutex.RUnlock()
 	}
 
 	return ServerStats{
@@ -336,27 +338,32 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 	// Check if stream already exists
 	streamId := fmt.Sprintf("%s-%s", camera.DeviceID, streamResolution)
 	if stream, exists := s.streams[streamId]; exists {
-		if stream.active || stream.connecting {
-			core.Logger.Trace().Msgf("Reusing existing stream for camera: %s", camera.DeviceName)
+		stream.mutex.Lock()
+		reusable := stream.active || stream.connecting || stream.starting
+		if reusable {
 			stream.lastActivity = time.Now()
+		}
+		stream.mutex.Unlock()
+		if reusable {
+			core.Logger.Trace().Msgf("Reusing existing stream for camera: %s", camera.DeviceName)
 			return stream, nil
 		}
 	}
 
 	// Create new stream
 	stream := NewCameraStream(camera, streamResolution, user, s.storageManager, s)
+	stream.mutex.Lock()
 	stream.connecting = true
+	stream.mutex.Unlock()
 
 	stream.webrtcBridge.OnError = func(err error) {
+		stream.mutex.Lock()
+		defer stream.mutex.Unlock()
+
 		if stream.active || stream.connecting {
 			core.Logger.Error().Err(err).Msgf("WebRTC error for camera %s", camera.DeviceName)
 
-			// Only stop if no clients are connected
-			stream.mutex.Lock()
-			clientCount := len(stream.clients)
-			stream.mutex.Unlock()
-
-			if clientCount == 0 {
+			if len(stream.clients) == 0 {
 				stream.stopStreamInternal()
 			}
 		}
@@ -451,7 +458,10 @@ func (s *RTSPServer) cleanupInactiveStreams() {
 	var inactive []*CameraStream
 	for deviceID, stream := range s.streams {
 		// Remove streams inactive for more than 5 minutes
-		if now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0 {
+		stream.mutex.RLock()
+		isInactive := now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0
+		stream.mutex.RUnlock()
+		if isInactive {
 			core.Logger.Trace().Msgf("Cleaning up inactive stream for camera: %s", stream.camera.DeviceName)
 			delete(s.streams, deviceID)
 			inactive = append(inactive, stream)
@@ -506,7 +516,11 @@ func (cs *CameraStream) AddClient(client *RTSPClient) {
 func (cs *CameraStream) RemoveClient(sessionID string) {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
+	cs.removeClientLocked(sessionID, true)
+}
 
+// removeClientLocked requires cs.mutex to be held.
+func (cs *CameraStream) removeClientLocked(sessionID string, scheduleShutdown bool) {
 	// Remove from RTP forwarder
 	if cs.webrtcBridge != nil && cs.webrtcBridge.rtpForwarder != nil {
 		cs.webrtcBridge.rtpForwarder.RemoveClient(sessionID)
@@ -516,7 +530,7 @@ func (cs *CameraStream) RemoveClient(sessionID string) {
 	cs.lastActivity = time.Now()
 
 	// Schedule stream shutdown if no clients and stream is active
-	if len(cs.clients) == 0 && cs.active {
+	if scheduleShutdown && len(cs.clients) == 0 && cs.active {
 		cs.scheduleShutdown()
 	}
 }
@@ -528,10 +542,12 @@ func (cs *CameraStream) SetShutdownDelay(delay time.Duration) {
 }
 
 func (cs *CameraStream) Stop() {
+	cs.mutex.Lock()
 	// Clear all clients first
 	for sessionID := range cs.clients {
-		cs.RemoveClient(sessionID)
+		cs.removeClientLocked(sessionID, false)
 	}
+	cs.mutex.Unlock()
 
 	// Stop the stream
 	cs.stopStream()

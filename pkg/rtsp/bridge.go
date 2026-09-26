@@ -274,15 +274,17 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 					return
 				}
 
+				videoSSRC := wb.rtpForwarder.videoSSRC.Load()
+				audioSSRC := wb.rtpForwarder.audioSSRC.Load()
 				switch packet.SSRC {
-				case wb.rtpForwarder.videoSSRC:
+				case videoSSRC:
 					wb.rtpForwarder.ForwardVideoPacket(packet)
-				case wb.rtpForwarder.audioSSRC:
+				case audioSSRC:
 					wb.rtpForwarder.ForwardAudioPacket(packet)
 				default:
 					wb.dataChannelSSRCMismatchLogged.Do(func() {
 						core.Logger.Warn().Msgf("Dropping HEVC data-channel RTP packet with SSRC %d (video %d, audio %d), PT %d, sequence %d, %d bytes",
-							packet.SSRC, wb.rtpForwarder.videoSSRC, wb.rtpForwarder.audioSSRC,
+							packet.SSRC, videoSSRC, audioSSRC,
 							packet.PayloadType, packet.SequenceNumber, len(msg.Data))
 					})
 				}
@@ -582,8 +584,8 @@ func (wb *WebRTCBridge) probe(msg pion.DataChannelMessage) (bool, error) {
 			return false, err
 		}
 
-		wb.rtpForwarder.videoSSRC = recvMessage.Video.SSRC
-		wb.rtpForwarder.audioSSRC = recvMessage.Audio.SSRC
+		wb.rtpForwarder.videoSSRC.Store(recvMessage.Video.SSRC)
+		wb.rtpForwarder.audioSSRC.Store(recvMessage.Audio.SSRC)
 
 		completeMsg, _ := json.Marshal(tuya.DataChannelMessage{
 			Type: "complete",
