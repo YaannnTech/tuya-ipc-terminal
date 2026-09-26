@@ -58,6 +58,7 @@ type CameraStream struct {
 	clients      map[string]*RTSPClient
 	mutex        sync.RWMutex
 	connecting   bool
+	starting     bool
 	active       bool
 	lastActivity time.Time
 
@@ -495,8 +496,9 @@ func (cs *CameraStream) AddClient(client *RTSPClient) {
 	cs.clients[client.session] = client
 	cs.lastActivity = time.Now()
 
-	// Start stream if not active
-	if !cs.active {
+	// Only one startup should run, and the RTSP client lock must not be held by it.
+	if !cs.active && !cs.starting {
+		cs.starting = true
 		go cs.startStream()
 	}
 }
@@ -536,23 +538,29 @@ func (cs *CameraStream) Stop() {
 }
 
 func (cs *CameraStream) startStream() {
-	cs.mutex.Lock()
-	defer cs.mutex.Unlock()
+	cs.startStreamWith(cs.webrtcBridge.Start)
+}
 
-	if cs.active {
-		return
-	}
-
+func (cs *CameraStream) startStreamWith(startBridge func() error) {
 	core.Logger.Info().Msgf("Starting stream for camera: %s", cs.camera.DeviceName)
 
-	if err := cs.webrtcBridge.Start(); err != nil {
+	if err := startBridge(); err != nil {
 		core.Logger.Error().Err(err).Msg("Failed to start WebRTC bridge")
+		cs.mutex.Lock()
+		cs.starting = false
 		cs.stopStreamInternal()
+		cs.mutex.Unlock()
 		return
 	}
 
+	cs.mutex.Lock()
+	cs.starting = false
 	cs.connecting = false
 	cs.active = true
+	if len(cs.clients) == 0 {
+		cs.scheduleShutdown()
+	}
+	cs.mutex.Unlock()
 }
 
 func (cs *CameraStream) stopStream() {
@@ -568,6 +576,7 @@ func (cs *CameraStream) stopStreamInternal() {
 	}
 
 	wasActive := cs.active
+	cs.starting = false
 	cs.active = false
 	cs.connecting = false
 

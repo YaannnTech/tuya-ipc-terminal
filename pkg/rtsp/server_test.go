@@ -53,6 +53,46 @@ func TestFindCameraByRTSPPathPrefersExactMatch(t *testing.T) {
 	}
 }
 
+func TestAddClientReturnsWhileWebRTCStartupWaits(t *testing.T) {
+	stream := &CameraStream{
+		camera:     &storage.CameraInfo{DeviceName: "Keller"},
+		clients:    make(map[string]*RTSPClient),
+		connecting: true,
+		starting:   true,
+	}
+	startupEntered := make(chan struct{})
+	finishStartup := make(chan struct{})
+	startupFinished := make(chan struct{})
+	go func() {
+		stream.startStreamWith(func() error {
+			close(startupEntered)
+			<-finishStartup
+			return nil
+		})
+		close(startupFinished)
+	}()
+	<-startupEntered
+
+	clientAdded := make(chan struct{})
+	go func() {
+		stream.AddClient(&RTSPClient{session: "ha-client"})
+		close(clientAdded)
+	}()
+
+	select {
+	case <-clientAdded:
+	case <-time.After(time.Second):
+		t.Fatal("adding an RTSP client blocked while WebRTC startup was waiting")
+	}
+
+	close(finishStartup)
+	select {
+	case <-startupFinished:
+	case <-time.After(time.Second):
+		t.Fatal("WebRTC startup did not finish after being released")
+	}
+}
+
 func TestRemoveClientDoesNotHoldServerLockDuringStreamCleanup(t *testing.T) {
 	stream := &CameraStream{clients: make(map[string]*RTSPClient)}
 	stream.mutex.Lock()
