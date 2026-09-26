@@ -3,6 +3,7 @@ package rtsp
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,86 +78,61 @@ func NewRTPForwarder() *RTPForwarder {
 	}
 }
 
-func (rf *RTPForwarder) AddUDPClient(sessionID string, videoRTPPort, audioRTPPort int) error {
+func (rf *RTPForwarder) AddUDPClient(sessionID, clientHost string, videoRTPPort, audioRTPPort int) error {
 	rf.mutex.Lock()
 	defer rf.mutex.Unlock()
 
-	// Check if client already exists
-	if client, exists := rf.clients[sessionID]; exists {
-		// Update existing client with new ports
-		client.videoRTPPort = videoRTPPort
-		client.audioRTPPort = audioRTPPort
-		client.lastActivity = time.Now()
-
-		// Create new connections if needed
-		if videoRTPPort > 0 && client.videoConn == nil {
-			videoAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", videoRTPPort))
-			videoConn, _ := net.DialUDP("udp", nil, videoAddr)
-			client.videoAddr = videoAddr
-			client.videoConn = videoConn
+	client, exists := rf.clients[sessionID]
+	if !exists {
+		client = &RTPClient{
+			sessionID:     sessionID,
+			transportMode: TransportUDP,
 		}
-
-		if audioRTPPort > 0 && client.audioConn == nil {
-			audioAddr, _ := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", audioRTPPort))
-			audioConn, _ := net.DialUDP("udp", nil, audioAddr)
-			client.audioAddr = audioAddr
-			client.audioConn = audioConn
-		}
-
-		return nil
 	}
 
-	client := &RTPClient{
-		sessionID:     sessionID,
-		transportMode: TransportUDP,
-		videoRTPPort:  videoRTPPort,
-		audioRTPPort:  audioRTPPort,
-		lastActivity:  time.Now(),
-	}
-
-	// Create video connection if port provided
-	if videoRTPPort > 0 {
-		videoAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", videoRTPPort))
+	if videoRTPPort > 0 && client.videoConn == nil {
+		videoConn, videoAddr, err := dialUDPClient(clientHost, videoRTPPort)
 		if err != nil {
-			return fmt.Errorf("failed to resolve video UDP address: %v", err)
+			return fmt.Errorf("failed to create video UDP connection: %w", err)
 		}
-
-		videoConn, err := net.DialUDP("udp", nil, videoAddr)
-		if err != nil {
-			return fmt.Errorf("failed to create video UDP connection: %v", err)
-		}
-
 		client.videoAddr = videoAddr
 		client.videoConn = videoConn
 	}
 
-	// Create audio connection if port provided
-	if audioRTPPort > 0 {
-		audioAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("localhost:%d", audioRTPPort))
+	if audioRTPPort > 0 && client.audioConn == nil {
+		audioConn, audioAddr, err := dialUDPClient(clientHost, audioRTPPort)
 		if err != nil {
-			if client.videoConn != nil {
+			if !exists && client.videoConn != nil {
 				client.videoConn.Close()
 			}
-			return fmt.Errorf("failed to resolve audio UDP address: %v", err)
-		}
-
-		audioConn, err := net.DialUDP("udp", nil, audioAddr)
-		if err != nil {
-			if client.videoConn != nil {
-				client.videoConn.Close()
-			}
-			return fmt.Errorf("failed to create audio UDP connection: %v", err)
+			return fmt.Errorf("failed to create audio UDP connection: %w", err)
 		}
 
 		client.audioAddr = audioAddr
 		client.audioConn = audioConn
 	}
 
+	client.videoRTPPort = videoRTPPort
+	client.audioRTPPort = audioRTPPort
+	client.lastActivity = time.Now()
 	rf.clients[sessionID] = client
 
-	core.Logger.Trace().Msgf("Added UDP RTP client %s (video port:%d, audio port:%d)",
-		sessionID, videoRTPPort, audioRTPPort)
+	core.Logger.Trace().Msgf("Added UDP RTP client %s at %s (video port:%d, audio port:%d)",
+		sessionID, clientHost, videoRTPPort, audioRTPPort)
 	return nil
+}
+
+func dialUDPClient(host string, port int) (*net.UDPConn, *net.UDPAddr, error) {
+	address := net.JoinHostPort(host, strconv.Itoa(port))
+	udpAddr, err := net.ResolveUDPAddr("udp", address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve UDP address %s: %w", address, err)
+	}
+	conn, err := net.DialUDP("udp", nil, udpAddr)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to dial UDP address %s: %w", address, err)
+	}
+	return conn, udpAddr, nil
 }
 
 func (rf *RTPForwarder) SetupUDPBackchannel(sessionID string, clientPort int) (int, error) {

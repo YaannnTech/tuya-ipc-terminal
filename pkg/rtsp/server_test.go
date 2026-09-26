@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"tuya-ipc-terminal/pkg/storage"
+
+	"github.com/pion/rtp"
 )
 
 func TestGenerateSDPUsesRequestedStreamCodec(t *testing.T) {
@@ -127,4 +129,36 @@ func TestRemoveClientDoesNotHoldServerLockDuringStreamCleanup(t *testing.T) {
 	}
 
 	t.Fatal("client cleanup kept the server lock while waiting for the stream lock")
+}
+
+func TestUDPForwarderSendsPacketsToRTSPPeerAddress(t *testing.T) {
+	peerAddr, err := net.ResolveUDPAddr("udp", "127.0.0.2:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := net.ListenUDP("udp", peerAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+
+	if err := peer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	peerUDPAddr := peer.LocalAddr().(*net.UDPAddr)
+	forwarder := NewRTPForwarder()
+	if err := forwarder.AddUDPClient("client", peerUDPAddr.IP.String(), peerUDPAddr.Port, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer forwarder.RemoveClient("client")
+
+	forwarder.ForwardVideoPacket(&rtp.Packet{
+		Header:  rtp.Header{Version: 2, PayloadType: 96},
+		Payload: []byte{1, 2, 3},
+	})
+
+	buffer := make([]byte, 1500)
+	if _, _, err := peer.ReadFromUDP(buffer); err != nil {
+		t.Fatalf("did not receive forwarded RTP packet at RTSP peer address: %v", err)
+	}
 }
