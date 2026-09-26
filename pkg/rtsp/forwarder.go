@@ -260,8 +260,8 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to UDP client %s", sessionID)
 				} else if rf.firstVideoPacket {
 					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video packet to UDP client %s on port %d",
-						sessionID, client.videoRTPPort)
+					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to UDP client %s on port %d (PT %d, SSRC %d, sequence %d, timestamp %d, %d bytes)",
+						sessionID, client.videoRTPPort, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
 			}
 		} else if client.transportMode == TransportTCP {
@@ -270,8 +270,8 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to TCP client %s", sessionID)
 				} else if rf.firstVideoPacket {
 					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video packet to TCP client %s on channel %d",
-						sessionID, client.videoRTPChannel)
+					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to TCP client %s on channel %d (PT %d, SSRC %d, sequence %d, timestamp %d, %d bytes)",
+						sessionID, client.videoRTPChannel, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
 			}
 		}

@@ -35,11 +35,13 @@ type WebRTCBridge struct {
 	storageManager *storage.StorageManager
 
 	// WebRTC components
-	peerConnection *pion.PeerConnection
-	dataChannel    *pion.DataChannel
-	mqttClient     *tuya.MQTTClient
-	cameraClient   *tuya.MQTTCameraClient
-	rtpForwarder   *RTPForwarder
+	peerConnection                *pion.PeerConnection
+	dataChannel                   *pion.DataChannel
+	dataChannelParseErrorLogged   sync.Once
+	dataChannelSSRCMismatchLogged sync.Once
+	mqttClient                    *tuya.MQTTClient
+	cameraClient                  *tuya.MQTTCameraClient
+	rtpForwarder                  *RTPForwarder
 
 	// State
 	connected bool
@@ -266,7 +268,9 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 			} else {
 				packet := &rtp.Packet{}
 				if err := packet.Unmarshal(msg.Data); err != nil {
-					// skip
+					wb.dataChannelParseErrorLogged.Do(func() {
+						core.Logger.Warn().Err(err).Msgf("Could not parse HEVC data-channel packet (%d bytes) as RTP", len(msg.Data))
+					})
 					return
 				}
 
@@ -275,6 +279,12 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 					wb.rtpForwarder.ForwardVideoPacket(packet)
 				case wb.rtpForwarder.audioSSRC:
 					wb.rtpForwarder.ForwardAudioPacket(packet)
+				default:
+					wb.dataChannelSSRCMismatchLogged.Do(func() {
+						core.Logger.Warn().Msgf("Dropping HEVC data-channel RTP packet with SSRC %d (video %d, audio %d), PT %d, sequence %d, %d bytes",
+							packet.SSRC, wb.rtpForwarder.videoSSRC, wb.rtpForwarder.audioSSRC,
+							packet.PayloadType, packet.SequenceNumber, len(msg.Data))
+					})
 				}
 			}
 		})
