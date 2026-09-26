@@ -1,6 +1,8 @@
 package rtsp
 
 import (
+	"encoding/binary"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -153,12 +155,56 @@ func TestUDPForwarderSendsPacketsToRTSPPeerAddress(t *testing.T) {
 	defer forwarder.RemoveClient("client")
 
 	forwarder.ForwardVideoPacket(&rtp.Packet{
-		Header:  rtp.Header{Version: 2, PayloadType: 96},
+		Header:  rtp.Header{Version: 2, PayloadType: 95},
 		Payload: []byte{1, 2, 3},
 	})
 
 	buffer := make([]byte, 1500)
-	if _, _, err := peer.ReadFromUDP(buffer); err != nil {
+	n, _, err := peer.ReadFromUDP(buffer)
+	if err != nil {
 		t.Fatalf("did not receive forwarded RTP packet at RTSP peer address: %v", err)
+	}
+	var forwarded rtp.Packet
+	if err := forwarded.Unmarshal(buffer[:n]); err != nil {
+		t.Fatalf("forwarded UDP data is not an RTP packet: %v", err)
+	}
+	if forwarded.PayloadType != 96 {
+		t.Fatalf("forwarded UDP payload type = %d, want SDP payload type 96", forwarded.PayloadType)
+	}
+}
+
+func TestTCPForwarderUsesSDPVideoPayloadType(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	forwarder := NewRTPForwarder()
+	if err := forwarder.AddTCPClient("client", serverConn, 0, 2, 4); err != nil {
+		t.Fatal(err)
+	}
+	defer forwarder.RemoveClient("client")
+
+	go forwarder.ForwardVideoPacket(&rtp.Packet{
+		Header:  rtp.Header{Version: 2, PayloadType: 95, SequenceNumber: 12, Timestamp: 34, SSRC: 56},
+		Payload: []byte{1, 2, 3},
+	})
+
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(clientConn, header); err != nil {
+		t.Fatalf("did not receive interleaved RTP header: %v", err)
+	}
+	if header[0] != '$' || header[1] != 0 {
+		t.Fatalf("interleaved header = %v, want '$' on video channel 0", header)
+	}
+	packetData := make([]byte, binary.BigEndian.Uint16(header[2:]))
+	if _, err := io.ReadFull(clientConn, packetData); err != nil {
+		t.Fatalf("did not receive interleaved RTP packet: %v", err)
+	}
+	var forwarded rtp.Packet
+	if err := forwarded.Unmarshal(packetData); err != nil {
+		t.Fatalf("forwarded TCP data is not an RTP packet: %v", err)
+	}
+	if forwarded.PayloadType != 96 {
+		t.Fatalf("forwarded TCP payload type = %d, want SDP payload type 96", forwarded.PayloadType)
 	}
 }

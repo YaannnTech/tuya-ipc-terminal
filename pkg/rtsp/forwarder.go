@@ -243,8 +243,12 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 		return
 	}
 
-	// Serialize packet
-	data, err := packet.Marshal()
+	// The RTSP SDP advertises video as payload type 96 for both H.264 and H.265.
+	// Tuya's HEVC data channel uses PT 95, which RTSP clients discard as unknown.
+	forwardedPacket := *packet
+	forwardedPacket.PayloadType = 96
+
+	data, err := forwardedPacket.Marshal()
 	if err != nil {
 		core.Logger.Error().Err(err).Msg("Error marshaling video RTP packet")
 		return
@@ -260,7 +264,7 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to UDP client %s", sessionID)
 				} else if rf.firstVideoPacket {
 					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to UDP client %s on port %d (PT %d, SSRC %d, sequence %d, timestamp %d, %d bytes)",
+					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to UDP client %s on port %d (PT %d->96, SSRC %d, sequence %d, timestamp %d, %d bytes)",
 						sessionID, client.videoRTPPort, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
 			}
@@ -270,7 +274,7 @@ func (rf *RTPForwarder) ForwardVideoPacket(packet *rtp.Packet) {
 					core.Logger.Error().Err(err).Msgf("Error forwarding video packet to TCP client %s", sessionID)
 				} else if rf.firstVideoPacket {
 					rf.firstVideoPacket = false
-					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to TCP client %s on channel %d (PT %d, SSRC %d, sequence %d, timestamp %d, %d bytes)",
+					core.Logger.Trace().Msgf("Successfully sent first video RTP packet to TCP client %s on channel %d (PT %d->96, SSRC %d, sequence %d, timestamp %d, %d bytes)",
 						sessionID, client.videoRTPChannel, packet.PayloadType, packet.SSRC, packet.SequenceNumber, packet.Timestamp, len(data))
 				}
 			}
