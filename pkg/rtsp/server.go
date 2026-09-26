@@ -354,11 +354,11 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 	return stream, nil
 }
 
-func (s *RTSPServer) removeStream(streamId string) {
+func (s *RTSPServer) removeStream(streamId string, stream *CameraStream) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	if _, exists := s.streams[streamId]; exists {
+	if current, exists := s.streams[streamId]; exists && current == stream {
 		delete(s.streams, streamId)
 		core.Logger.Trace().Msgf("Removed stream %s from server map", streamId)
 	}
@@ -372,16 +372,18 @@ func (s *RTSPServer) addClient(client *RTSPClient) {
 
 func (s *RTSPServer) removeClient(sessionID string) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	client, exists := s.clients[sessionID]
+	if exists {
+		delete(s.clients, sessionID)
+	}
+	s.mutex.Unlock()
 
-	if client, exists := s.clients[sessionID]; exists {
-		// Remove client from stream
+	if exists {
+		// Stream cleanup can wait for a camera startup; do not hold the server lock.
+		client.conn.Close()
 		if client.stream != nil {
 			client.stream.RemoveClient(sessionID)
 		}
-
-		client.conn.Close()
-		delete(s.clients, sessionID)
 	}
 }
 
@@ -430,16 +432,21 @@ func (s *RTSPServer) cleanupRoutine() {
 
 func (s *RTSPServer) cleanupInactiveStreams() {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
 
 	now := time.Now()
+	var inactive []*CameraStream
 	for deviceID, stream := range s.streams {
 		// Remove streams inactive for more than 5 minutes
 		if now.Sub(stream.lastActivity) > 5*time.Minute && len(stream.clients) == 0 {
 			core.Logger.Trace().Msgf("Cleaning up inactive stream for camera: %s", stream.camera.DeviceName)
-			stream.Stop()
 			delete(s.streams, deviceID)
+			inactive = append(inactive, stream)
 		}
+	}
+	s.mutex.Unlock()
+
+	for _, stream := range inactive {
+		stream.Stop()
 	}
 }
 
@@ -570,7 +577,7 @@ func (cs *CameraStream) stopStreamInternal() {
 	// Remove from server map in a separate goroutine to avoid potential deadlock
 	go func() {
 		if cs.server != nil {
-			cs.server.removeStream(cs.streamId)
+			cs.server.removeStream(cs.streamId, cs)
 		}
 	}()
 }
