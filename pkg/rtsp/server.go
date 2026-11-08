@@ -488,6 +488,11 @@ func NewCameraStream(camera *storage.CameraInfo, resolution string, user *storag
 	}
 
 	stream.webrtcBridge = NewWebRTCBridge(camera, resolution, user, storageManager)
+	if server != nil {
+		// A client the forwarder can no longer reach would otherwise keep the
+		// camera stream alive (and pulling from Tuya) until its RTSP connection ends.
+		stream.webrtcBridge.rtpForwarder.OnDeadClient = server.removeClient
+	}
 
 	return stream
 }
