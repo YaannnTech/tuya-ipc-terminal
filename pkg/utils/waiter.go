@@ -37,6 +37,8 @@ func (w *Waiter) Wait() error {
 
 	w.WaitGroup.Wait()
 
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	return w.err
 }
 
@@ -44,15 +46,21 @@ func (w *Waiter) Done(err error) {
 	w.mu.Lock()
 
 	// safe run Done only when have tasks
+	release := false
 	if w.state > 0 {
 		w.state--
-		w.WaitGroup.Done()
+		release = true
 	}
 
-	// block waiter for any operations after last done
+	// block waiter for any operations after last done. Store the error before
+	// releasing Wait, or Wait can return before err is set and report success.
 	if w.state == 0 {
 		w.state = -1
 		w.err = err
+	}
+
+	if release {
+		w.WaitGroup.Done()
 	}
 
 	w.mu.Unlock()
