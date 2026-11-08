@@ -476,7 +476,8 @@ func runShowCountryCodes(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\nUsage in authentication:")
 	fmt.Println("  tuya-ipc-terminal auth add --password eu-central user@example.com")
-	fmt.Println("  (You'll be prompted to select your country code)")
+	fmt.Println("  tuya-ipc-terminal auth add --password --country-code 55 us-west user@example.com")
+	fmt.Println("  (Pass --country-code when the login fails with the region's default code)")
 
 	return nil
 }
