@@ -1,7 +1,7 @@
 # Tuya IPC Terminal
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.26%2B-blue.svg)](https://golang.org/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through reverse-engineered Tuya browser client APIs. Stream your Tuya cameras directly to any RTSP-compatible media player or home automation system.
@@ -29,6 +29,10 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 - **No leaked connections:** A failed start or a camera disconnect now always closes the WebRTC and MQTT connections, so nothing keeps pulling video from Tuya in the background.
 - **Clients reconnect after a failure:** When a stream fails, its RTSP sessions are closed, so players reconnect and get a fresh stream instead of waiting for packets forever.
 - **Errors are not lost:** A failed connection could be reported as a success because of a race in the internal waiter.
+
+### Command line fixes
+
+- **Up-to-date dependencies:** pion/webrtc 4.2, pion/dtls 3.1, paho MQTT 1.5.1 and current `golang.org/x` modules, which fixes the known vulnerabilities `govulncheck` reported in code paths this tool uses. Building now needs Go 1.26 or newer.
 
 ### Incorporated pull requests from the original repository
 
