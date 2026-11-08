@@ -8,7 +8,7 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 
 > [!NOTE]
 > **This is a maintained fork of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal).**
-> The original project has had no commits since May 2025 and its open pull requests have not been reviewed, so I continue it here. The fork includes my own fixes plus useful pull requests from the original repository, with credit to their authors (see [What's different in this fork](#-whats-different-in-this-fork)). All credit for the original work goes to [@seydx](https://github.com/seydx).
+> The original project has had no commits since May 2025 and its open pull requests have not been reviewed, so I continue it here. The fork includes my own fixes plus useful pull requests from the original repository, with credit to their authors (see [What's different in this fork](#-whats-different-in-this-fork)). All credit for the original work goes to [@seydx](https://github.com/seydx). If the original project becomes active again, I'll gladly contribute these changes back upstream (see [seydx/tuya-ipc-terminal#38](https://github.com/seydx/tuya-ipc-terminal/issues/38)).
 
 ## 🍴 What's different in this fork
 
