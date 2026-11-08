@@ -358,15 +358,20 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 
 	stream.webrtcBridge.OnError = func(err error) {
 		stream.mutex.Lock()
-		defer stream.mutex.Unlock()
-
-		if stream.active || stream.connecting {
-			core.Logger.Error().Err(err).Msgf("WebRTC error for camera %s", camera.DeviceName)
-
-			if len(stream.clients) == 0 {
-				stream.stopStreamInternal()
-			}
+		if !stream.active && !stream.connecting {
+			stream.mutex.Unlock()
+			return
 		}
+
+		core.Logger.Error().Err(err).Msgf("WebRTC error for camera %s", camera.DeviceName)
+
+		// The bridge has no reconnect logic, so a stream whose WebRTC side
+		// failed stays dead. Stop it and close its sessions: clients reconnect
+		// and get a fresh stream instead of waiting for packets forever.
+		sessions := stream.clientSessionsLocked()
+		stream.stopStreamInternal()
+		stream.mutex.Unlock()
+		stream.closeSessions(sessions)
 	}
 
 	s.streams[streamId] = stream
@@ -569,8 +574,14 @@ func (cs *CameraStream) startStreamWith(startBridge func() error) {
 		core.Logger.Error().Err(err).Msg("Failed to start WebRTC bridge")
 		cs.mutex.Lock()
 		cs.starting = false
+		// OnError may already have stopped the stream and closed its sessions.
+		var sessions []string
+		if cs.active || cs.connecting {
+			sessions = cs.clientSessionsLocked()
+		}
 		cs.stopStreamInternal()
 		cs.mutex.Unlock()
+		cs.closeSessions(sessions)
 		return
 	}
 
@@ -582,6 +593,27 @@ func (cs *CameraStream) startStreamWith(startBridge func() error) {
 		cs.scheduleShutdown()
 	}
 	cs.mutex.Unlock()
+}
+
+// clientSessionsLocked requires cs.mutex to be held.
+func (cs *CameraStream) clientSessionsLocked() []string {
+	sessions := make([]string, 0, len(cs.clients))
+	for sessionID := range cs.clients {
+		sessions = append(sessions, sessionID)
+	}
+	return sessions
+}
+
+// closeSessions closes the RTSP sessions of a stream that failed. Must be
+// called without cs.mutex held: removing a client takes it.
+func (cs *CameraStream) closeSessions(sessions []string) {
+	if cs.server == nil {
+		return
+	}
+	for _, sessionID := range sessions {
+		core.Logger.Info().Msgf("Closing RTSP session %s: stream for camera %s failed", sessionID, cs.camera.DeviceName)
+		go cs.server.removeClient(sessionID)
+	}
 }
 
 func (cs *CameraStream) stopStream() {
