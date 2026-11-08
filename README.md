@@ -1,10 +1,49 @@
 # Tuya IPC Terminal
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/Go-1.23%2B-blue.svg)](https://golang.org/)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)]()
 
 A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through reverse-engineered Tuya browser client APIs. Stream your Tuya cameras directly to any RTSP-compatible media player or home automation system.
+
+> [!NOTE]
+> **This is a maintained fork of [seydx/tuya-ipc-terminal](https://github.com/seydx/tuya-ipc-terminal).**
+> The original project has had no commits since May 2025 and its open pull requests have not been reviewed, so I continue it here. The fork includes my own fixes plus useful pull requests from the original repository, with credit to their authors (see [What's different in this fork](#-whats-different-in-this-fork)). All credit for the original work goes to [@seydx](https://github.com/seydx).
+
+## 🍴 What's different in this fork
+
+### RTSP server fixes
+
+- **No more stream lockups:** The server no longer holds locks while it waits for the Tuya cloud or tears down a stream, so new clients get their `OPTIONS`/`DESCRIBE` answers while a camera is still starting, and one slow client no longer stalls the others.
+- **Correct codec per stream:** `DESCRIBE` advertises the codec of the stream that was actually requested (`/hd` or `/sd`), which matters for cameras that use H.265 for HD and H.264 for SD.
+- **HEVC playback:** RTP packets are forwarded with the payload type the SDP advertises (96), so FFmpeg, VLC and go2rtc no longer drop HEVC video from the camera's data channel.
+- **UDP clients on other hosts:** RTP over UDP is sent to the address of the RTSP client instead of `localhost`.
+- **Case-insensitive camera paths:** `rtsp://host:8554/frontdoor` finds the camera `FrontDoor` when there is no exact match, for clients such as VLC that change the case of the path.
+- **Dead clients are cleaned up:** A client that disconnected, stopped reading (2 s write timeout on TCP) or closed its UDP port is dropped, and its RTSP session is closed so the camera stream can shut down.
+- **Race fixes:** Forwarder state is synchronized (`go test -race` passes), and stopping a stream no longer races with clients joining or leaving.
+
+### WebRTC bridge fixes
+
+- **ICE candidates that arrive early:** Tuya can deliver a camera's ICE candidate before its answer. The candidate used to abort the stream start; it is now held until the answer is applied.
+- **Start timeout:** A camera that never completes the handshake now fails the start after 30 s instead of keeping the stream "starting" forever. Stopping the server (Ctrl+C or SIGTERM) no longer hangs on such a stream.
+- **No leaked connections:** A failed start or a camera disconnect now always closes the WebRTC and MQTT connections, so nothing keeps pulling video from Tuya in the background.
+- **Clients reconnect after a failure:** When a stream fails, its RTSP sessions are closed, so players reconnect and get a fresh stream instead of waiting for packets forever.
+- **Errors are not lost:** A failed connection could be reported as a success because of a race in the internal waiter.
+
+### Incorporated pull requests from the original repository
+
+| Original PR | Author | Change |
+|-------------|--------|--------|
+| [#28](https://github.com/seydx/tuya-ipc-terminal/pull/28) | [@oeretana](https://github.com/oeretana) | `/sd` streams on H.264 (non-HEVC) cameras no longer hang forever on startup (fixes [#27](https://github.com/seydx/tuya-ipc-terminal/issues/27)) |
+| [#26](https://github.com/seydx/tuya-ipc-terminal/pull/26) | [@muminkoykiran](https://github.com/muminkoykiran) | Remove dead clients instead of logging every failed packet (reworked: error types instead of message text, UDP and TCP timeouts covered, RTSP session closed too) |
+| [#30](https://github.com/seydx/tuya-ipc-terminal/pull/30) | [@melankh](https://github.com/melankh) | Lock fix for clearing clients when a stream stops |
+| [#34](https://github.com/seydx/tuya-ipc-terminal/pull/34) | [@mpereiradev](https://github.com/mpereiradev) | `brazil` region and `--country-code` flag for password login |
+
+Several fixes from [#5](https://github.com/seydx/tuya-ipc-terminal/pull/5), [#24](https://github.com/seydx/tuya-ipc-terminal/pull/24), [#26](https://github.com/seydx/tuya-ipc-terminal/pull/26) and [#30](https://github.com/seydx/tuya-ipc-terminal/pull/30) were already covered by the RTSP server fixes above, so they were not merged separately.
+
+### Home Assistant
+
+This fork powers the **Tuya IPC Bridge** app for Home Assistant in [YaannnTech/HA-Apps](https://github.com/YaannnTech/HA-Apps).
 
 ## ✨ Features
 
@@ -24,7 +63,7 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 ### Installation
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/YaannnTech/tuya-ipc-terminal.git
 cd tuya-ipc-terminal
 chmod +x build.sh
 ./build.sh
@@ -342,7 +381,7 @@ ffplay rtsp://localhost:8554/CameraName/sd
 ### Development Setup
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/YaannnTech/tuya-ipc-terminal.git
 cd tuya-ipc-terminal
 go mod download
 go run main.go --help
@@ -381,7 +420,7 @@ The authors are not responsible for any issues arising from the use of this soft
 Having issues? Here's how to get help:
 
 1. 📖 Check this README for common solutions
-2. 🐛 Search existing [GitHub Issues](link-to-issues)
+2. 🐛 Search existing [GitHub Issues](https://github.com/YaannnTech/tuya-ipc-terminal/issues)
 3. 💬 Create a new issue with:
    - Your operating system
    - Go version (`go version`)
