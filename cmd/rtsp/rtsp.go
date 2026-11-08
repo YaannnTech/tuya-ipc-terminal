@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -52,19 +53,23 @@ func newStartCmd() *cobra.Command {
 }
 
 func newStopCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "stop",
 		Short: "Stop RTSP server",
-		Long:  "Stop the running RTSP server.",
+		Long:  "Stop the RTSP servers started from this directory, or only the one on --port.",
 		RunE:  runStopServer,
 	}
+
+	cmd.Flags().IntP("port", "p", 0, "Only stop the server on this port")
+
+	return cmd
 }
 
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show RTSP server status",
-		Long:  "Display current status and statistics of the RTSP server.",
+		Long:  "Show the RTSP servers started from this directory and whether they answer.",
 		RunE:  runServerStatus,
 	}
 }
@@ -112,6 +117,22 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return errors.New("no cameras found")
 	}
 
+	dataDir := storageManager.GetDataDir()
+	if rec, err := findServer(dataDir, port); err == nil && rec != nil {
+		return fmt.Errorf("RTSP server on port %d is %w (PID %d)", port, errAlreadyRunning, rec.PID)
+	}
+
+	if daemon {
+		rec, err := startDaemon(dataDir, port)
+		if err != nil {
+			return fmt.Errorf("failed to start RTSP server in the background: %v", err)
+		}
+		core.Logger.Info().Msgf("RTSP server running in the background on port %d (PID %d)", rec.Port, rec.PID)
+		core.Logger.Info().Msgf("Log: %s", rec.LogFile)
+		core.Logger.Info().Msgf("Stop it with: tuya-ipc-terminal rtsp stop --port %d", rec.Port)
+		return nil
+	}
+
 	// Create and start RTSP server
 	rtspServer = rtsp.NewRTSPServer(port, storageManager)
 
@@ -121,10 +142,12 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start RTSP server: %v", err)
 	}
 
-	if daemon {
-		core.Logger.Info().Msgf("RTSP server started in daemon mode")
-		return nil
+	pid := os.Getpid()
+	if err := writeServerRecord(dataDir, serverRecord{PID: pid, Port: port, Started: time.Now()}); err != nil {
+		core.Logger.Warn().Err(err).
+			Msg("Could not write the PID file; rtsp stop and rtsp status will not find this server")
 	}
+	defer removeServerRecord(dataDir, port, pid)
 
 	// Wait for interrupt signal
 	core.Logger.Info().Msgf("RTSP server is running. Press Ctrl+C to stop.")
@@ -144,43 +167,73 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 }
 
 func runStopServer(cmd *cobra.Command, args []string) error {
-	if rtspServer == nil {
-		return errors.New("no RTSP server instance found")
+	port, _ := cmd.Flags().GetInt("port")
+	dataDir := storageManager.GetDataDir()
+
+	servers, err := runningServers(dataDir)
+	if err != nil {
+		return fmt.Errorf("failed to look for running servers: %v", err)
 	}
 
-	if !rtspServer.IsRunning() {
-		core.Logger.Info().Msg("RTSP server is not running")
+	stopped := 0
+	var failed []string
+	for _, rec := range servers {
+		if port != 0 && rec.Port != port {
+			continue
+		}
+		core.Logger.Info().Msgf("Stopping RTSP server on port %d (PID %d)...", rec.Port, rec.PID)
+		if err := stopServer(dataDir, rec); err != nil {
+			failed = append(failed, err.Error())
+			continue
+		}
+		stopped++
+	}
+
+	if len(failed) > 0 {
+		return fmt.Errorf("could not stop every server: %s", strings.Join(failed, "; "))
+	}
+	if stopped == 0 {
+		if port != 0 {
+			core.Logger.Info().Msgf("No RTSP server running on port %d", port)
+		} else {
+			core.Logger.Info().Msg("No RTSP server running")
+		}
 		return nil
 	}
 
-	core.Logger.Info().Msg("Stopping RTSP server...")
-	if err := rtspServer.Stop(); err != nil {
-		return fmt.Errorf("failed to stop server: %v", err)
-	}
-
-	core.Logger.Info().Msg("RTSP server stopped.")
+	core.Logger.Info().Msgf("Stopped %d RTSP server(s).", stopped)
 	return nil
 }
 
 func runServerStatus(cmd *cobra.Command, args []string) error {
-	if rtspServer == nil {
-		fmt.Println("RTSP Server Status: Not initialized")
+	servers, err := runningServers(storageManager.GetDataDir())
+	if err != nil {
+		return fmt.Errorf("failed to look for running servers: %v", err)
+	}
+
+	if len(servers) == 0 {
+		fmt.Println("RTSP Server Status: Not running")
+		fmt.Println("Start it with: tuya-ipc-terminal rtsp start")
 		return nil
 	}
 
-	stats := rtspServer.GetStats()
-
 	fmt.Println("RTSP Server Status:")
 	fmt.Println("==================")
-	fmt.Printf("Port: %d\n", stats.Port)
-	fmt.Printf("Running: %v\n", stats.Running)
-	fmt.Printf("Connected clients: %d\n", stats.ClientCount)
-	fmt.Printf("Active streams: %d\n", stats.StreamCount)
-	fmt.Printf("Total streams: %d\n", stats.TotalStreams)
+	for _, rec := range servers {
+		answering := "yes"
+		if err := probeRTSP(rec.Port, 2*time.Second); err != nil {
+			answering = fmt.Sprintf("no (%v)", err)
+		}
 
-	if stats.Running {
-		fmt.Printf("\nServer has been running since startup\n")
-		fmt.Printf("Access cameras via: rtsp://localhost:%d/[camera-path]\n", stats.Port)
+		fmt.Printf("Port: %d\n", rec.Port)
+		fmt.Printf("PID: %d\n", rec.PID)
+		fmt.Printf("Running since: %s (%s)\n", rec.Started.Format("2006-01-02 15:04:05"),
+			time.Since(rec.Started).Round(time.Second))
+		fmt.Printf("Answering RTSP: %s\n", answering)
+		if rec.LogFile != "" {
+			fmt.Printf("Log: %s\n", rec.LogFile)
+		}
+		fmt.Printf("Access cameras via: rtsp://localhost:%d/[camera-path]\n\n", rec.Port)
 	}
 
 	return nil
@@ -204,8 +257,8 @@ func runListEndpoints(cmd *cobra.Command, args []string) error {
 	}
 
 	port := 8554
-	if rtspServer != nil {
-		port = rtspServer.GetPort()
+	if servers, err := runningServers(storageManager.GetDataDir()); err == nil && len(servers) == 1 {
+		port = servers[0].Port
 	}
 
 	fmt.Println("Available RTSP Endpoints:")

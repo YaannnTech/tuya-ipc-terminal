@@ -32,6 +32,7 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 
 ### Command line fixes
 
+- **`rtsp stop`, `rtsp status` and `--daemon` work:** `start` writes a PID file per port, so `stop` and `status` (which run in their own process) can find the server, and `--daemon` really keeps the server running in the background.
 - **Up-to-date dependencies:** pion/webrtc 4.2, pion/dtls 3.1, paho MQTT 1.5.1 and current `golang.org/x` modules, which fixes the known vulnerabilities `govulncheck` reported in code paths this tool uses. Building now needs Go 1.26 or newer.
 
 ### Incorporated pull requests from the original repository
@@ -182,13 +183,14 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 # Start RTSP server
 ./tuya-ipc-terminal rtsp start --port 8554
 
-# Start as background daemon
+# Start in the background (log: .tuya-data/rtsp-8554.log)
 ./tuya-ipc-terminal rtsp start --port 8554 --daemon
 
-# Stop RTSP server
+# Stop all servers started from this directory, or only one port
 ./tuya-ipc-terminal rtsp stop
+./tuya-ipc-terminal rtsp stop --port 8554
 
-# Check server status
+# Show running servers and whether they answer
 ./tuya-ipc-terminal rtsp status
 
 # List all available camera endpoints
@@ -263,7 +265,12 @@ sudo systemctl start tuya-rtsp
 # Different ports for different purposes
 ./tuya-ipc-terminal rtsp start --port 8554 --daemon  # Main cameras
 ./tuya-ipc-terminal rtsp start --port 8555 --daemon  # Backup/secondary
+
+# Stop only the second one
+./tuya-ipc-terminal rtsp stop --port 8555
 ```
+
+`stop` and `status` find the servers through PID files in `.tuya-data/`, so run them from the same directory as `start`.
 
 ### 👥 Multi-User Setup Example
 
