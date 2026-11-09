@@ -1,6 +1,7 @@
 package cameras
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -201,7 +202,8 @@ func runCameraInfo(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	webRTCConfig, err := tuya.GetWebRTCConfig(httpClient, user.SessionData.ServerHost, targetCamera.DeviceID)
+	ctx := context.Background()
+	webRTCConfig, err := tuya.GetWebRTCConfig(ctx, httpClient, user.SessionData.ServerHost, targetCamera.DeviceID)
 	if err != nil {
 		fmt.Printf("Could not get WebRTC config: %v\n", err)
 		return nil
@@ -228,8 +230,10 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 		return nil, errors.New("failed to create HTTP client")
 	}
 
+	ctx := context.Background()
+
 	// Test session validity first
-	_, err := tuya.GetAppInfo(httpClient, user.SessionData.ServerHost)
+	_, err := tuya.GetAppInfo(ctx, httpClient, user.SessionData.ServerHost)
 	if err != nil {
 		return nil, fmt.Errorf("session is invalid: %v", err)
 	}
@@ -237,11 +241,11 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 	var devices []tuya.Device
 
 	// Get home list
-	homes, _ := tuya.GetHomeList(httpClient, user.SessionData.ServerHost)
+	homes, _ := tuya.GetHomeList(ctx, httpClient, user.SessionData.ServerHost)
 	if homes != nil && len(homes.Result) > 0 {
 		for _, home := range homes.Result {
 			// Get room list with devices
-			roomList, err := tuya.GetRoomList(httpClient, user.SessionData.ServerHost, strconv.Itoa(home.Gid))
+			roomList, err := tuya.GetRoomList(ctx, httpClient, user.SessionData.ServerHost, strconv.Itoa(home.Gid))
 			if err != nil {
 				continue // Skip this home if we can't get rooms
 			}
@@ -259,7 +263,7 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 	}
 
 	// Get shared home list
-	sharedHomes, _ := tuya.GetSharedHomeList(httpClient, user.SessionData.ServerHost)
+	sharedHomes, _ := tuya.GetSharedHomeList(ctx, httpClient, user.SessionData.ServerHost)
 	if sharedHomes != nil && len(sharedHomes.Result.SecurityWebCShareInfoList) > 0 {
 
 		// Extract cameras from shared homes
@@ -280,7 +284,7 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 	var allCameras []storage.CameraInfo
 
 	for _, device := range devices {
-		webrtcConfig, err := tuya.GetWebRTCConfig(httpClient, user.SessionData.ServerHost, device.DeviceId)
+		webrtcConfig, err := tuya.GetWebRTCConfig(ctx, httpClient, user.SessionData.ServerHost, device.DeviceId)
 		if err != nil {
 			continue // Skip if we can't get WebRTC config
 		}

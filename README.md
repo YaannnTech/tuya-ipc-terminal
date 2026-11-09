@@ -25,7 +25,7 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 ### WebRTC bridge fixes
 
 - **ICE candidates that arrive early:** Tuya can deliver a camera's ICE candidate before its answer. The candidate used to abort the stream start; it is now held until the answer is applied.
-- **Start timeout:** A camera that never completes the handshake now fails the start after 30 s instead of keeping the stream "starting" forever. Stopping the server (Ctrl+C or SIGTERM) no longer hangs on such a stream.
+- **Start timeout:** A camera that never completes the handshake now fails the start after 30 s instead of keeping the stream "starting" forever. Stopping the server (Ctrl+C or SIGTERM) no longer hangs on such a stream or on pending Tuya API requests.
 - **No leaked connections:** A failed start or a camera disconnect now always closes the WebRTC and MQTT connections, so nothing keeps pulling video from Tuya in the background.
 - **Clients reconnect after a failure:** When a stream fails, its RTSP sessions are closed, so players reconnect and get a fresh stream instead of waiting for packets forever.
 - **Errors are not lost:** A failed connection could be reported as a success because of a race in the internal waiter.
