@@ -149,13 +149,13 @@ func (wb *WebRTCBridge) Start() (err error) {
 	}
 
 	// Get app info
-	appInfo, err := tuya.GetAppInfo(httpClient, wb.user.SessionData.ServerHost)
+	appInfo, err := tuya.GetAppInfo(wb.ctx, httpClient, wb.user.SessionData.ServerHost)
 	if err != nil {
 		return fmt.Errorf("failed to get app info: %v", err)
 	}
 
 	// Get MQTT config
-	mqttConfig, err := tuya.GetMQTTConfig(httpClient, wb.user.SessionData.ServerHost)
+	mqttConfig, err := tuya.GetMQTTConfig(wb.ctx, httpClient, wb.user.SessionData.ServerHost)
 	if err != nil {
 		return fmt.Errorf("failed to get MQTT config: %v", err)
 	}
@@ -176,7 +176,7 @@ func (wb *WebRTCBridge) Start() (err error) {
 	}
 
 	// Get WebRTC configuration
-	webRTCConfig, err := tuya.GetWebRTCConfig(httpClient, wb.user.SessionData.ServerHost, wb.camera.DeviceID)
+	webRTCConfig, err := tuya.GetWebRTCConfig(wb.ctx, httpClient, wb.user.SessionData.ServerHost, wb.camera.DeviceID)
 	if err != nil {
 		return fmt.Errorf("failed to get WebRTC config: %v", err)
 	}

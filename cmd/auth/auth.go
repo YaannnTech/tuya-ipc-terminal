@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -379,7 +380,8 @@ func runTestUser(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Testing session for %s (%s)..\n", email, regionName)
 
-	_, err = tuya.GetAppInfo(httpClient, user.SessionData.ServerHost)
+	ctx := context.Background()
+	_, err = tuya.GetAppInfo(ctx, httpClient, user.SessionData.ServerHost)
 	if err != nil {
 		fmt.Printf("✗ Session is invalid: %v\n", err)
 		fmt.Println("Try refreshing the session with:")
@@ -531,7 +533,8 @@ func performPasswordAuthentication(region tuya.Region, email, countryCode string
 		countryCode = region.Continent
 	}
 
-	loginResult, err := tuya.PasswordLogin(httpClient, serverHost, email, password, countryCode)
+	ctx := context.Background()
+	loginResult, err := tuya.PasswordLogin(ctx, httpClient, serverHost, email, password, countryCode)
 	if err != nil {
 		return nil, fmt.Errorf("password authentication failed: %v", err)
 	}
@@ -554,7 +557,8 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 	httpClient := createHTTPClientWithSession(nil)
 
 	fmt.Println("Generating QR code...")
-	qrCodeToken, err := tuya.GenerateQRCode(httpClient, serverHost)
+	ctx := context.Background()
+	qrCodeToken, err := tuya.GenerateQRCode(ctx, httpClient, serverHost)
 	if err != nil {
 		return nil, fmt.Errorf("error generating QR code: %v", err)
 	}
@@ -566,7 +570,7 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 	fmt.Scanln()
 
 	fmt.Println("Polling for login status...")
-	loginResult, err := tuya.PollForLogin(httpClient, serverHost, qrCodeToken)
+	loginResult, err := tuya.PollForLogin(ctx, httpClient, serverHost, qrCodeToken)
 	if err != nil {
 		return nil, fmt.Errorf("error polling for login: %v", err)
 	}

@@ -2,6 +2,7 @@ package tuya
 
 import (
 	"bytes"
+	"context"
 	"crypto/md5"
 	cryptoRand "crypto/rand"
 	"crypto/rsa"
@@ -297,9 +298,9 @@ type RecvMessage struct {
 	} `json:"audio"`
 }
 
-func PasswordLogin(client *http.Client, serverHost, email, password, countryCode string) (*LoginResult, error) {
+func PasswordLogin(ctx context.Context, client *http.Client, serverHost, email, password, countryCode string) (*LoginResult, error) {
 	// Step 1: Get login token
-	tokenResp, err := GetLoginToken(client, serverHost, email, countryCode)
+	tokenResp, err := GetLoginToken(ctx, client, serverHost, email, countryCode)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +331,7 @@ func PasswordLogin(client *http.Client, serverHost, email, password, countryCode
 		loginReq.Mobile = email
 	}
 
-	loginResp, err = performLogin(client, url, loginReq, serverHost)
+	loginResp, err = performLogin(ctx, client, url, loginReq, serverHost)
 
 	if err != nil {
 		return nil, err
@@ -343,7 +344,7 @@ func PasswordLogin(client *http.Client, serverHost, email, password, countryCode
 	return &loginResp.Result, nil
 }
 
-func GetLoginToken(client *http.Client, serverHost, username, countryCode string) (*LoginTokenResponse, error) {
+func GetLoginToken(ctx context.Context, client *http.Client, serverHost, username, countryCode string) (*LoginTokenResponse, error) {
 	url := fmt.Sprintf("https://%s/api/login/token", serverHost)
 
 	tokenReq := LoginTokenRequest{
@@ -357,7 +358,7 @@ func GetLoginToken(client *http.Client, serverHost, username, countryCode string
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -386,10 +387,10 @@ func GetLoginToken(client *http.Client, serverHost, username, countryCode string
 	return &tokenResp, nil
 }
 
-func GenerateQRCode(client *http.Client, serverHost string) (string, error) {
+func GenerateQRCode(ctx context.Context, client *http.Client, serverHost string) (string, error) {
 	url := fmt.Sprintf("https://%s/api/login/security/QCtoken", serverHost)
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -427,7 +428,7 @@ func GenerateQRCode(client *http.Client, serverHost string) (string, error) {
 	return qrResponse.Result, nil
 }
 
-func PollForLogin(client *http.Client, serverHost string, token string) (*LoginResult, error) {
+func PollForLogin(ctx context.Context, client *http.Client, serverHost string, token string) (*LoginResult, error) {
 	url := fmt.Sprintf("https://%s/api/login/poll", serverHost)
 
 	data := map[string]string{
@@ -441,7 +442,7 @@ func PollForLogin(client *http.Client, serverHost string, token string) (*LoginR
 
 	maxRetries := 60
 	for i := 0; i < maxRetries; i++ {
-		req, err := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 		if err != nil {
 			return nil, err
 		}
@@ -491,16 +492,20 @@ func PollForLogin(client *http.Client, serverHost string, token string) (*LoginR
 			}
 		}
 
-		time.Sleep(1 * time.Second)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(1 * time.Second):
+		}
 	}
 
 	return nil, errors.New("timeout waiting for QR code scan")
 }
 
-func GetAppInfo(client *http.Client, serverHost string) (*AppInfoResponse, error) {
+func GetAppInfo(ctx context.Context, client *http.Client, serverHost string) (*AppInfoResponse, error) {
 	url := fmt.Sprintf("https://%s/api/customized/web/app/info", serverHost)
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -538,10 +543,10 @@ func GetAppInfo(client *http.Client, serverHost string) (*AppInfoResponse, error
 	return &appInfoResponse, nil
 }
 
-func GetMQTTConfig(client *http.Client, serverHost string) (*MQTTConfigResponse, error) {
+func GetMQTTConfig(ctx context.Context, client *http.Client, serverHost string) (*MQTTConfigResponse, error) {
 	url := fmt.Sprintf("https://%s/api/jarvis/mqtt", serverHost)
 
-	req, err := http.NewRequest("POST", url, strings.NewReader("{}"))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader("{}"))
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +584,7 @@ func GetMQTTConfig(client *http.Client, serverHost string) (*MQTTConfigResponse,
 	return &mqttConfigResponse, nil
 }
 
-func GetWebRTCConfig(client *http.Client, serverHost string, deviceId string) (*WebRTCConfigResponse, error) {
+func GetWebRTCConfig(ctx context.Context, client *http.Client, serverHost string, deviceId string) (*WebRTCConfigResponse, error) {
 	url := fmt.Sprintf("https://%s/api/jarvis/config", serverHost)
 
 	data := map[string]string{
@@ -592,7 +597,7 @@ func GetWebRTCConfig(client *http.Client, serverHost string, deviceId string) (*
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -630,10 +635,10 @@ func GetWebRTCConfig(client *http.Client, serverHost string, deviceId string) (*
 	return &webRTCConfigResponse, nil
 }
 
-func GetHomeList(client *http.Client, serverHost string) (*HomeListResponse, error) {
+func GetHomeList(ctx context.Context, client *http.Client, serverHost string) (*HomeListResponse, error) {
 	url := fmt.Sprintf("https://%s/api/new/common/homeList", serverHost)
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -671,10 +676,10 @@ func GetHomeList(client *http.Client, serverHost string) (*HomeListResponse, err
 	return &homeListResponse, nil
 }
 
-func GetSharedHomeList(client *http.Client, serverHost string) (*SharedHomeListResponse, error) {
+func GetSharedHomeList(ctx context.Context, client *http.Client, serverHost string) (*SharedHomeListResponse, error) {
 	url := fmt.Sprintf("https://%s/api/new/playback/shareList", serverHost)
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -712,7 +717,7 @@ func GetSharedHomeList(client *http.Client, serverHost string) (*SharedHomeListR
 	return &sharedHomeListResponse, nil
 }
 
-func GetRoomList(client *http.Client, serverHost string, homeId string) (*RoomListResponse, error) {
+func GetRoomList(ctx context.Context, client *http.Client, serverHost string, homeId string) (*RoomListResponse, error) {
 	url := fmt.Sprintf("https://%s/api/new/common/roomList", serverHost)
 
 	data := map[string]string{
@@ -724,7 +729,7 @@ func GetRoomList(client *http.Client, serverHost string, homeId string) (*RoomLi
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, err
 	}
@@ -762,13 +767,13 @@ func GetRoomList(client *http.Client, serverHost string, homeId string) (*RoomLi
 	return &roomListResponse, nil
 }
 
-func performLogin(client *http.Client, url string, loginReq PasswordLoginRequest, serverHost string) (*PasswordLoginResponse, error) {
+func performLogin(ctx context.Context, client *http.Client, url string, loginReq PasswordLoginRequest, serverHost string) (*PasswordLoginResponse, error) {
 	jsonData, err := json.Marshal(loginReq)
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
