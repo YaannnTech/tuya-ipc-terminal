@@ -11,15 +11,22 @@ type CountryCode struct {
 }
 
 var AvailableRegions = []tuya.Region{
-	{"eu-central", "protect-eu.ismartlife.me", "Central Europe", "EU"},
-	{"eu-east", "protect-we.ismartlife.me", "East Europe", "EU"},
-	{"us-west", "protect-us.ismartlife.me", "West America", "AZ"},
-	{"us-east", "protect-ue.ismartlife.me", "East America", "AZ"},
-	{"china", "protect.ismartlife.me", "China", "AY"},
-	{"india", "protect-in.ismartlife.me", "India", "IN"},
+	{Name: "eu-central", Host: "protect-eu.ismartlife.me",
+		Description: "Central Europe", Continent: "EU"},
+	{Name: "eu-east", Host: "protect-we.ismartlife.me",
+		Description: "East Europe", Continent: "EU"},
+	{Name: "us-west", Host: "protect-us.ismartlife.me",
+		Description: "West America", Continent: "AZ"},
+	{Name: "us-east", Host: "protect-ue.ismartlife.me",
+		Description: "East America", Continent: "AZ"},
+	{Name: "china", Host: "protect.ismartlife.me",
+		Description: "China", Continent: "AY"},
+	{Name: "india", Host: "protect-in.ismartlife.me",
+		Description: "India", Continent: "IN"},
 	// Brazil has no data center of its own; its accounts live on us-west but
 	// only log in with their phone country code, not the "AZ" continent code.
-	{"brazil", "protect-us.ismartlife.me", "Brazil (West America data center)", "55"},
+	{Name: "brazil", Host: "protect-us.ismartlife.me",
+		Description: "Brazil (West America data center)", Continent: "55"},
 }
 
 var CountryCodesData = []CountryCode{
