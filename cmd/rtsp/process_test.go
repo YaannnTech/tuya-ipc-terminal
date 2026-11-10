@@ -134,11 +134,17 @@ func listenOnce(t *testing.T, answer string) int {
 
 func TestProbeRTSP(t *testing.T) {
 	// Any RTSP answer counts, even 404 for the root path.
-	if err := probeRTSP(listenOnce(t, "RTSP/1.0 404 Not Found\r\nCSeq: 1\r\n\r\n"), time.Second); err != nil {
+	if err := probeRTSP("127.0.0.1", listenOnce(t, "RTSP/1.0 404 Not Found\r\nCSeq: 1\r\n\r\n"), time.Second); err != nil {
 		t.Fatalf("probeRTSP() with an RTSP server = %v, want nil", err)
 	}
-	if err := probeRTSP(listenOnce(t, "HTTP/1.1 400 Bad Request\r\n\r\n"), time.Second); err == nil {
+	if err := probeRTSP("127.0.0.1", listenOnce(t, "HTTP/1.1 400 Bad Request\r\n\r\n"), time.Second); err == nil {
 		t.Fatal("probeRTSP() accepted a non-RTSP server")
+	}
+	// A server on all interfaces is probed via loopback.
+	for _, address := range []string{"", "0.0.0.0"} {
+		if err := probeRTSP(address, listenOnce(t, "RTSP/1.0 200 OK\r\nCSeq: 1\r\n\r\n"), time.Second); err != nil {
+			t.Fatalf("probeRTSP(%q) = %v, want nil", address, err)
+		}
 	}
 }
 

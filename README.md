@@ -183,6 +183,9 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 # Start RTSP server
 ./tuya-ipc-terminal rtsp start --port 8554
 
+# Limit RTSP access to this host (default: all interfaces)
+./tuya-ipc-terminal rtsp start --port 8554 --address 127.0.0.1
+
 # Start in the background (log: .tuya-data/rtsp-8554.log)
 ./tuya-ipc-terminal rtsp start --port 8554 --daemon
 
@@ -196,6 +199,9 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 # List all available camera endpoints
 ./tuya-ipc-terminal rtsp list-endpoints
 ```
+
+The RTSP server has no authentication. By default it listens on all interfaces;
+use `--address 127.0.0.1` to restrict access to the local machine.
 
 ## 🎬 RTSP Streaming Guide
 

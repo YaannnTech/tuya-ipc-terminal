@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 )
 
 type RTSPServer struct {
+	address        string
 	port           int
 	listener       net.Listener
 	storageManager *storage.StorageManager
@@ -79,10 +81,13 @@ type ServerConfig struct {
 	EnableAuthentication bool
 }
 
-func NewRTSPServer(port int, storageManager *storage.StorageManager) *RTSPServer {
+// NewRTSPServer creates an RTSP server for the given listen address and port.
+// An empty address listens on all interfaces.
+func NewRTSPServer(address string, port int, storageManager *storage.StorageManager) *RTSPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &RTSPServer{
+		address:        address,
 		port:           port,
 		storageManager: storageManager,
 		clients:        make(map[string]*RTSPClient),
@@ -101,15 +106,15 @@ func (s *RTSPServer) Start() error {
 		return errors.New("server is already running")
 	}
 
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.port))
+	listener, err := listenTCP(s.address, s.port)
 	if err != nil {
-		return fmt.Errorf("failed to listen on port %d: %v", s.port, err)
+		return fmt.Errorf("failed to listen on %s: %v", net.JoinHostPort(s.address, strconv.Itoa(s.port)), err)
 	}
 
 	s.listener = listener
 	s.running = true
 
-	core.Logger.Info().Msgf("RTSP Server started on port %d", s.port)
+	core.Logger.Info().Msgf("RTSP Server started on %s", listener.Addr())
 	core.Logger.Info().Msgf("Available endpoints:")
 
 	// List available camera endpoints
@@ -124,6 +129,10 @@ func (s *RTSPServer) Start() error {
 	go s.cleanupRoutine()
 
 	return nil
+}
+
+func listenTCP(address string, port int) (net.Listener, error) {
+	return net.Listen("tcp", net.JoinHostPort(address, strconv.Itoa(port)))
 }
 
 func (s *RTSPServer) Stop() error {
@@ -429,7 +438,7 @@ func (s *RTSPServer) printAvailableEndpoints() error {
 		json.Unmarshal([]byte(camera.Skill), &skill)
 
 		supportClarity := skill != nil && (skill.WebRTC&(1<<5)) != 0
-		baseUrl := fmt.Sprintf("rtsp://localhost:%d%s", s.port, camera.RTSPPath)
+		baseUrl := fmt.Sprintf("rtsp://%s%s", net.JoinHostPort(URLHostForAddress(s.address), strconv.Itoa(s.port)), camera.RTSPPath)
 
 		if supportClarity {
 			core.Logger.Info().Msgf("  %s/hd (%s)", baseUrl, camera.DeviceName)
@@ -440,6 +449,19 @@ func (s *RTSPServer) printAvailableEndpoints() error {
 	}
 
 	return nil
+}
+
+// URLHostForAddress returns the host to show in rtsp:// URLs for a listen
+// address: localhost for all interfaces (empty, 0.0.0.0 or ::), else the
+// address itself.
+func URLHostForAddress(address string) string {
+	if address == "" {
+		return "localhost"
+	}
+	if ip := net.ParseIP(address); ip != nil && ip.IsUnspecified() {
+		return "localhost"
+	}
+	return address
 }
 
 func (s *RTSPServer) cleanupRoutine() {
