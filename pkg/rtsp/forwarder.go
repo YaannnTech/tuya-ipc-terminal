@@ -38,7 +38,10 @@ type RTPForwarder struct {
 	firstVideoPacket atomic.Bool
 	firstAudioPacket atomic.Bool
 
-	OnBackchannelAudio func(*rtp.Packet)
+	OnBackchannelAudio func(sessionID string, packet *rtp.Packet)
+
+	// OnClientRemoved must not perform I/O or call back into the forwarder.
+	OnClientRemoved func(sessionID string)
 
 	// OnDeadClient is called (in its own goroutine) after a client was dropped
 	// because sending to it failed for good, so the RTSP session can be closed too.
@@ -223,12 +226,23 @@ func (rf *RTPForwarder) AddTCPClient(sessionID string, conn net.Conn, videoRTPCh
 
 func (rf *RTPForwarder) RemoveClient(sessionID string) {
 	rf.mutex.Lock()
-	defer rf.mutex.Unlock()
-
-	if client, exists := rf.clients[sessionID]; exists {
+	client, exists := rf.clients[sessionID]
+	if exists {
 		client.close()
 		delete(rf.clients, sessionID)
 		core.Logger.Trace().Msgf("Removed RTP client %s", sessionID)
+		if rf.OnClientRemoved != nil {
+			rf.OnClientRemoved(sessionID)
+		}
+	}
+	rf.mutex.Unlock()
+}
+
+func (rf *RTPForwarder) forwardBackchannel(sessionID string, packet *rtp.Packet) {
+	rf.mutex.RLock()
+	defer rf.mutex.RUnlock()
+	if _, exists := rf.clients[sessionID]; exists && rf.OnBackchannelAudio != nil {
+		rf.OnBackchannelAudio(sessionID, packet)
 	}
 }
 
@@ -441,6 +455,9 @@ func (rf *RTPForwarder) CleanupInactiveClients(timeout time.Duration) {
 		if client, exists := rf.clients[sessionID]; exists {
 			client.close()
 			delete(rf.clients, sessionID)
+			if rf.OnClientRemoved != nil {
+				rf.OnClientRemoved(sessionID)
+			}
 			core.Logger.Trace().Msgf("Cleaned up inactive RTP client %s", sessionID)
 		}
 	}
@@ -467,9 +484,7 @@ func (rf *RTPForwarder) handleUDPBackchannelRTP(sessionID string, listener *net.
 		}
 
 		// Forward to WebRTC bridge
-		if rf.OnBackchannelAudio != nil {
-			rf.OnBackchannelAudio(packet)
-		}
+		rf.forwardBackchannel(sessionID, packet)
 	}
 }
 

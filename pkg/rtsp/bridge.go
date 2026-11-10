@@ -63,9 +63,11 @@ type WebRTCBridge struct {
 	cancel context.CancelFunc
 
 	// RTP forwarding
-	videoTrack  *pion.TrackRemote
-	audioTrack  *pion.TrackRemote
-	backchannel *pion.TrackLocalStaticRTP
+	videoTrack                  *pion.TrackRemote
+	audioTrack                  *pion.TrackRemote
+	backchannel                 atomic.Pointer[pion.TrackLocalStaticRTP]
+	backchannelWriteErrorLogged sync.Once
+	speaker                     speakerState
 
 	// Callbacks
 	OnVideoPacket func(packet *rtp.Packet)
@@ -89,6 +91,7 @@ func NewWebRTCBridge(camera *storage.CameraInfo, streamResolution string, user *
 	}
 
 	wb.rtpForwarder.OnBackchannelAudio = wb.ForwardBackchannelAudioPacket
+	wb.rtpForwarder.OnClientRemoved = wb.speaker.clientLeft
 	wb.remoteCandidates = newRemoteCandidateQueue(wb.addRemoteCandidate)
 
 	return wb
@@ -253,6 +256,8 @@ func (wb *WebRTCBridge) closeResources() {
 		wb.closing.Store(true)
 		wb.cancel()
 
+		// Before SendDisconnect and the MQTT shutdown, which end the session.
+		wb.speaker.stop()
 		if wb.cameraClient != nil {
 			wb.cameraClient.SendDisconnect()
 		}
@@ -274,10 +279,20 @@ func (wb *WebRTCBridge) IsConnected() bool {
 	return wb.connected
 }
 
-func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(packet *rtp.Packet) {
-	if wb.backchannel != nil {
-		_ = wb.backchannel.WriteRTP(packet)
+func (wb *WebRTCBridge) ForwardBackchannelAudioPacket(sessionID string, packet *rtp.Packet) {
+	if track := wb.backchannel.Load(); track != nil {
+		if err := track.WriteRTP(packet); err == nil {
+			wb.speaker.packetForwarded(sessionID)
+		} else {
+			wb.backchannelWriteErrorLogged.Do(func() {
+				core.Logger.Warn().Err(err).Msg("Failed to forward backchannel audio")
+			})
+		}
 	}
+}
+
+func (wb *WebRTCBridge) setBackchannel(track *pion.TrackLocalStaticRTP) {
+	wb.backchannel.Store(track)
 }
 
 func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) error {
@@ -422,12 +437,19 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 			for _, tr := range wb.peerConnection.GetTransceivers() {
 				if tr.Receiver() == receiver && tr.Kind() == pion.RTPCodecTypeAudio {
 					if tr.Direction() == pion.RTPTransceiverDirectionSendrecv || tr.Direction() == pion.RTPTransceiverDirectionSendonly {
-						localTrack, _ := pion.NewTrackLocalStaticRTP(
+						localTrack, err := pion.NewTrackLocalStaticRTP(
 							pion.RTPCodecCapability{MimeType: track.Codec().MimeType},
 							"audio-backchannel", "pion",
 						)
-						tr.Sender().ReplaceTrack(localTrack)
-						wb.backchannel = localTrack
+						if err != nil {
+							core.Logger.Warn().Err(err).Msg("Failed to create backchannel track")
+							break
+						}
+						if err := tr.Sender().ReplaceTrack(localTrack); err != nil {
+							core.Logger.Warn().Err(err).Msg("Failed to attach backchannel track")
+							break
+						}
+						wb.setBackchannel(localTrack)
 						core.Logger.Trace().Msgf("Setup backchannel track")
 						break
 					}
@@ -455,6 +477,7 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	// Create MQTT camera client
 	wb.cameraClient = tuya.NewMqttCameraClient(wb.mqttClient, device, webRTCConfig)
 	wb.mqttClient.AddCameraClient(wb.cameraClient.SessionId, wb.cameraClient)
+	wb.speaker.setSender(wb.cameraClient.SendSpeaker)
 
 	// Setup handlers
 	wb.cameraClient.HandleAnswer = func(answer tuya.AnswerFrame) {
