@@ -326,7 +326,9 @@ sudo systemctl start tuya-rtsp
 |----------|-------------|---------------|
 | `sp` | Smart cameras | ✅ Full support |
 | `dghsxj` | Additional camera type | ✅ Full support |
-| Others | Generic Tuya cameras | ⚠️ May work |
+| `cdsxj` | Additional camera type | ⚠️ Discovery supported; stream compatibility may vary |
+| `sp_wnq` | Smart bird feeder cameras | ⚠️ Discovery supported; stream compatibility may vary |
+| Others | Other Tuya camera categories | ❌ Not discovered |
 
 ## 🐛 Troubleshooting
 
