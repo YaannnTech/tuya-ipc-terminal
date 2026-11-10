@@ -22,8 +22,9 @@ var storageManager *storage.StorageManager
 
 // cameraCategories lists the Tuya device categories that discovery treats as
 // cameras: sp = smart camera, dghsxj = another camera type, cdsxj = camera
-// type from upstream PR #32, sp_wnq = smart bird feeder camera.
-var cameraCategories = []string{"sp", "dghsxj", "cdsxj", "sp_wnq"}
+// type from upstream PR #32, sp_wnq = smart bird feeder camera,
+// ksdjml = video peephole camera (some were moved here from sp).
+var cameraCategories = []string{"sp", "dghsxj", "cdsxj", "sp_wnq", "ksdjml"}
 
 func SetStorageManager(sm *storage.StorageManager) {
 	storageManager = sm

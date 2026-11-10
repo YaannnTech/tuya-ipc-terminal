@@ -11,6 +11,7 @@ func TestIsCameraCategory(t *testing.T) {
 		{category: "dghsxj", want: true},
 		{category: "cdsxj", want: true},
 		{category: "sp_wnq", want: true},
+		{category: "ksdjml", want: true},
 		{category: "unknown", want: false},
 		{category: "", want: false},
 	}
