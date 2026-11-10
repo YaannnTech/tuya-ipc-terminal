@@ -32,6 +32,9 @@ type WebRTCBridge struct {
 	resolution     string
 	streamType     int
 	isHEVC         bool
+	lanHDReady     utils.Waiter
+	lanHDRequest   sync.Once
+	lanHDSwitched  atomic.Bool
 	user           *storage.UserSession
 	storageManager *storage.StorageManager
 
@@ -121,6 +124,7 @@ func (wb *WebRTCBridge) waitFor(w *utils.Waiter, what string) error {
 	return err
 }
 
+// Start connects the bridge and waits for the camera stream to become ready.
 func (wb *WebRTCBridge) Start() (err error) {
 	wb.mutex.Lock()
 	defer wb.mutex.Unlock()
@@ -188,8 +192,11 @@ func (wb *WebRTCBridge) Start() (err error) {
 	}
 
 	// Determine stream settings
-	wb.streamType = tuya.GetStreamType(&skill, wb.resolution)
+	wb.streamType = tuya.GetStreamType(&skill, wb.upstreamResolution())
 	wb.isHEVC = tuya.IsHEVC(&skill, wb.streamType)
+	if wb.resolution == lanHDResolution && wb.isHEVC {
+		return errors.New("/hd-lan requires an H.264 SD stream")
+	}
 
 	core.Logger.Info().Msgf("Stream settings - Resolution: %s, Type: %d, HEVC: %v", wb.resolution, wb.streamType, wb.isHEVC)
 
@@ -208,6 +215,11 @@ func (wb *WebRTCBridge) Start() (err error) {
 
 	if err = wb.waitFor(&wb.waiter, "the camera stream"); err != nil {
 		return fmt.Errorf("failed to establish connection: %v", err)
+	}
+	if wb.resolution == lanHDResolution {
+		if err = wb.waitFor(&wb.lanHDReady, "HEVC parameters and a keyframe"); err != nil {
+			return fmt.Errorf("failed to start /hd-lan: %w", err)
+		}
 	}
 
 	wb.connected = true
@@ -279,6 +291,9 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal ICE servers: %v", err)
 	}
+	if wb.resolution == lanHDResolution {
+		iceServers = nil
+	}
 
 	// Create peer connection configuration
 	conf := pion.Configuration{
@@ -297,6 +312,14 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	wb.peerConnection, err = api.NewPeerConnection(conf)
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %v", err)
+	}
+	if wb.resolution == lanHDResolution {
+		wb.lanHDICETransport().OnSelectedCandidatePairChange(func(pair *pion.ICECandidatePair) {
+			if err := requireLANHDPeer(pair); err != nil {
+				// Closing the peer connection inside its ICE callback can deadlock.
+				go wb.handleError(err)
+			}
+		})
 	}
 
 	// On HEVC, use DataChannel to receive video/audio
@@ -526,7 +549,7 @@ func (wb *WebRTCBridge) createAndSendOffer() error {
 	core.Logger.Trace().Msgf("Sending WebRTC offer")
 
 	// Send offer
-	if err := wb.cameraClient.SendOffer(offer, wb.resolution, wb.streamType, wb.isHEVC); err != nil {
+	if err := wb.cameraClient.SendOffer(offer, wb.upstreamResolution(), wb.streamType, wb.isHEVC); err != nil {
 		return fmt.Errorf("failed to send offer: %v", err)
 	}
 
@@ -535,6 +558,11 @@ func (wb *WebRTCBridge) createAndSendOffer() error {
 
 func (wb *WebRTCBridge) handleVideoTrack(track *pion.TrackRemote) {
 	core.Logger.Trace().Msgf("Starting video track handler")
+	var lanVideo *lanHDVideo
+	if wb.resolution == lanHDResolution {
+		lanVideo = newLANHDVideo()
+		wb.lanHDRequest.Do(func() { go wb.requestLANHD() })
+	}
 
 	for {
 		select {
@@ -557,7 +585,19 @@ func (wb *WebRTCBridge) handleVideoTrack(track *pion.TrackRemote) {
 				continue
 			}
 
-			wb.rtpForwarder.ForwardVideoPacket(packet)
+			if lanVideo == nil {
+				wb.rtpForwarder.ForwardVideoPacket(packet)
+			} else if wb.lanHDSwitched.Load() {
+				wasReady := lanVideo.ready
+				packets := lanVideo.push(packet, time.Now())
+				if !wasReady && lanVideo.ready {
+					wb.lanHDReady.Done(nil)
+					core.Logger.Info().Msg("/hd-lan: received HEVC parameters and a keyframe")
+				}
+				for _, output := range packets {
+					wb.rtpForwarder.ForwardVideoPacket(output)
+				}
+			}
 		}
 	}
 }
@@ -679,6 +719,10 @@ func (wb *WebRTCBridge) handleError(err error) {
 	// confirming the disconnect we sent) and must not be reported.
 	if wb.closing.Load() {
 		return
+	}
+	if wb.resolution == lanHDResolution {
+		wb.waiter.Done(err)
+		wb.lanHDReady.Done(err)
 	}
 	if wb.OnError != nil {
 		wb.waiter.Done(err)

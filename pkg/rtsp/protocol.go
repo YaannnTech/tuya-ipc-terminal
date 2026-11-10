@@ -96,8 +96,11 @@ func extractCameraPath(rtspURL string) (string, string) {
 
 	streamResolution := "hd" // Default to HD
 
-	// check if ends with "/hd" or "/sd"
-	if strings.HasSuffix(path, "/hd") {
+	// Check for a stream resolution suffix.
+	if strings.HasSuffix(path, "/"+lanHDResolution) {
+		streamResolution = lanHDResolution
+		path = strings.TrimSuffix(path, "/"+lanHDResolution)
+	} else if strings.HasSuffix(path, "/hd") {
 		streamResolution = "hd"
 		path = strings.TrimSuffix(path, "/hd")
 	} else if strings.HasSuffix(path, "/sd") {
@@ -489,10 +492,12 @@ func (s *RTSPServer) handlePlay(client *RTSPClient, request *RTSPRequest) {
 	}
 
 	headers := map[string]string{
-		"CSeq":     strconv.Itoa(request.CSeq),
-		"Session":  client.session,
-		"Range":    "npt=0.000-",
-		"RTP-Info": fmt.Sprintf("url=%s;seq=1;rtptime=0", request.URL),
+		"CSeq":    strconv.Itoa(request.CSeq),
+		"Session": client.session,
+		"Range":   "npt=0.000-",
+	}
+	if client.stream.resolution != lanHDResolution {
+		headers["RTP-Info"] = fmt.Sprintf("url=%s;seq=1;rtptime=0", request.URL)
 	}
 
 	sendRTSPResponse(client.conn, 200, "OK", headers, "")
@@ -539,7 +544,10 @@ func (s *RTSPServer) generateSDP(camera *storage.CameraInfo, baseURL, streamReso
 	videoSdp := ""
 
 	// Video media description based on skill
-	if skill != nil && len(skill.Videos) > 0 {
+	if streamResolution == lanHDResolution {
+		videoSdp += "m=video 0 RTP/AVP 96\r\n"
+		videoSdp += "a=rtpmap:96 H265/90000\r\n"
+	} else if skill != nil && len(skill.Videos) > 0 {
 		streamType := tuya.GetStreamType(skill, streamResolution)
 		isHEVC := tuya.IsHEVC(skill, streamType)
 

@@ -198,3 +198,26 @@ func TestErrorsAfterOwnShutdownAreNotReported(t *testing.T) {
 		t.Fatalf("OnError called for an error after the bridge shut itself down")
 	}
 }
+
+func TestStreamDoesNotBecomeActiveAfterStartupError(t *testing.T) {
+	server := &RTSPServer{clients: make(map[string]*RTSPClient), streams: make(map[string]*CameraStream)}
+	stream, err := server.getOrCreateStream(&storage.CameraInfo{DeviceID: "camera", DeviceName: "Camera"}, lanHDResolution, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream.mutex.Lock()
+	stream.starting = true
+	stream.mutex.Unlock()
+
+	stream.startStreamWith(func() error {
+		stream.webrtcBridge.OnError(errors.New("ICE peer changed during startup"))
+		return nil
+	})
+
+	stream.mutex.RLock()
+	defer stream.mutex.RUnlock()
+	if stream.active || stream.connecting || stream.starting {
+		t.Fatalf("stream revived after startup error: active=%t connecting=%t starting=%t",
+			stream.active, stream.connecting, stream.starting)
+	}
+}

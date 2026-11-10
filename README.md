@@ -210,8 +210,20 @@ use `--address 127.0.0.1` to restrict access to the local machine.
 Camera streams are available at:
 ```
 rtsp://localhost:[port]/[camera-name]
-rtsp://localhost:[port]/[camera-name]/sd  # Sub-stream (lower quality)
+rtsp://localhost:[port]/[camera-name]/hd      # Main stream
+rtsp://localhost:[port]/[camera-name]/sd      # Sub-stream (lower quality)
+rtsp://localhost:[port]/[camera-name]/hd-lan  # Experimental LAN HEVC
 ```
+
+`/hd-lan` is an opt-in workaround for cameras that start an H.264 SD
+stream locally and switch it to HEVC HD on request. Tuya cloud signaling is
+still required. The selected ICE peer must have a private or link-local
+address; the stream fails instead of switching on a public or relay peer.
+The server waits for HEVC parameters and a keyframe, and repacketizes the
+camera's H.264-style framing for HEVC RTSP clients. This mode was reported
+working on a `ksdjml` peephole camera by [@sintech](https://github.com/sintech);
+other cameras may not support it, and intermittent artifacts are still under
+investigation. The default, `/hd`, and `/sd` modes are unchanged.
 
 
 ### 🏠 Home Automation Integration

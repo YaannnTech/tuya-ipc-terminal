@@ -608,6 +608,12 @@ func (cs *CameraStream) startStreamWith(startBridge func() error) {
 	}
 
 	cs.mutex.Lock()
+	if !cs.starting || !cs.connecting {
+		// An asynchronous bridge error may have stopped the stream while
+		// the final startup notification was being delivered.
+		cs.mutex.Unlock()
+		return
+	}
 	cs.starting = false
 	cs.connecting = false
 	cs.active = true
