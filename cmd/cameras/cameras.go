@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -18,6 +19,11 @@ import (
 )
 
 var storageManager *storage.StorageManager
+
+// cameraCategories lists the Tuya device categories that discovery treats as
+// cameras: sp = smart camera, dghsxj = another camera type, cdsxj = camera
+// type from upstream PR #32, sp_wnq = smart bird feeder camera.
+var cameraCategories = []string{"sp", "dghsxj", "cdsxj", "sp_wnq"}
 
 func SetStorageManager(sm *storage.StorageManager) {
 	storageManager = sm
@@ -253,8 +259,7 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 			// Extract cameras from rooms
 			for _, room := range roomList.Result {
 				for _, device := range room.DeviceList {
-					// Check if device is a camera (sp = smart camera, dghsxj = another camera type)
-					if (device.Category == "sp" || device.Category == "dghsxj") && !containsDevice(devices, device.DeviceId) {
+					if isCameraCategory(device.Category) && !containsDevice(devices, device.DeviceId) {
 						devices = append(devices, device)
 					}
 				}
@@ -269,8 +274,7 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 		// Extract cameras from shared homes
 		for _, sharedHome := range sharedHomes.Result.SecurityWebCShareInfoList {
 			for _, device := range sharedHome.DeviceInfoList {
-				// Check if device is a camera (sp = smart camera, dghsxj = another camera type)
-				if (device.Category == "sp" || device.Category == "dghsxj") && !containsDevice(devices, device.DeviceId) {
+				if isCameraCategory(device.Category) && !containsDevice(devices, device.DeviceId) {
 					devices = append(devices, device)
 				}
 			}
@@ -306,6 +310,10 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 	}
 
 	return allCameras, nil
+}
+
+func isCameraCategory(category string) bool {
+	return slices.Contains(cameraCategories, category)
 }
 
 func createHTTPClientWithSession(session *tuya.SessionData) *http.Client {
