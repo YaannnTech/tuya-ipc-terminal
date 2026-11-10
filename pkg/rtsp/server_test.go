@@ -14,6 +14,51 @@ import (
 	"github.com/pion/rtp"
 )
 
+func TestListenTCPUsesConfiguredAddress(t *testing.T) {
+	listener, err := listenTCP("127.0.0.1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	addr := listener.Addr().(*net.TCPAddr)
+	if !addr.IP.IsLoopback() {
+		t.Fatalf("listener address = %s, want loopback", addr.IP)
+	}
+
+	defaultListener, err := listenTCP("", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer defaultListener.Close()
+
+	defaultAddr := defaultListener.Addr().(*net.TCPAddr)
+	if !defaultAddr.IP.IsUnspecified() {
+		t.Fatalf("default listener address = %s, want all interfaces", defaultAddr.IP)
+	}
+}
+
+func TestURLHostForAddress(t *testing.T) {
+	tests := []struct {
+		address string
+		want    string
+	}{
+		{address: "", want: "localhost"},
+		{address: "0.0.0.0", want: "localhost"},
+		{address: "::", want: "localhost"},
+		{address: "127.0.0.1", want: "127.0.0.1"},
+		{address: "camera-host.local", want: "camera-host.local"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.address, func(t *testing.T) {
+			if got := URLHostForAddress(test.address); got != test.want {
+				t.Errorf("URLHostForAddress(%q) = %q, want %q", test.address, got, test.want)
+			}
+		})
+	}
+}
+
 func TestGenerateSDPUsesRequestedStreamCodec(t *testing.T) {
 	camera := &storage.CameraInfo{
 		Skill: `{"videos":[{"streamType":2,"codecType":4,"width":2560,"height":1440},{"streamType":4,"codecType":2,"width":640,"height":360}]}`,

@@ -20,6 +20,7 @@ import (
 type serverRecord struct {
 	PID     int       `json:"pid"`
 	Port    int       `json:"port"`
+	Address string    `json:"address,omitempty"`
 	Started time.Time `json:"started"`
 	LogFile string    `json:"logFile,omitempty"`
 }
@@ -104,17 +105,31 @@ func findServer(dataDir string, port int) (*serverRecord, error) {
 	return nil, nil
 }
 
-// probeRTSP checks that something answers RTSP on the local port.
-func probeRTSP(port int, timeout time.Duration) error {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), timeout)
+// probeRTSP checks that something answers RTSP on the server's listen
+// address. For all interfaces (empty, 0.0.0.0 or ::) it uses the loopback
+// address.
+func probeRTSP(address string, port int, timeout time.Duration) error {
+	host := address
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+		if ip.To4() == nil {
+			host = "::1"
+		} else {
+			host = "127.0.0.1"
+		}
+	}
+	endpoint := net.JoinHostPort(host, fmt.Sprint(port))
+	conn, err := net.DialTimeout("tcp", endpoint, timeout)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
-	request := fmt.Sprintf("OPTIONS rtsp://127.0.0.1:%d/ RTSP/1.0\r\n"+
-		"CSeq: 1\r\nUser-Agent: tuya-ipc-terminal-status\r\n\r\n", port)
+	request := fmt.Sprintf("OPTIONS rtsp://%s/ RTSP/1.0\r\n"+
+		"CSeq: 1\r\nUser-Agent: tuya-ipc-terminal-status\r\n\r\n", endpoint)
 	if _, err := conn.Write([]byte(request)); err != nil {
 		return err
 	}
@@ -148,7 +163,7 @@ func stopServer(dataDir string, rec serverRecord) error {
 
 // startDaemon runs "rtsp start" again as a detached background process and
 // waits until it serves RTSP.
-func startDaemon(dataDir string, port int) (*serverRecord, error) {
+func startDaemon(dataDir string, port int, address string) (*serverRecord, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -161,7 +176,11 @@ func startDaemon(dataDir string, port int) (*serverRecord, error) {
 	}
 	defer out.Close()
 
-	cmd := exec.Command(exe, "rtsp", "start", "--port", fmt.Sprint(port))
+	args := []string{"rtsp", "start", "--port", fmt.Sprint(port)}
+	if address != "" {
+		args = append(args, "--address", address)
+	}
+	cmd := exec.Command(exe, args...)
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.SysProcAttr = detachedProcAttr()
@@ -183,7 +202,7 @@ func startDaemon(dataDir string, port int) (*serverRecord, error) {
 		}
 
 		rec, err := findServer(dataDir, port)
-		if err == nil && rec != nil && rec.PID == cmd.Process.Pid && probeRTSP(port, time.Second) == nil {
+		if err == nil && rec != nil && rec.PID == cmd.Process.Pid && probeRTSP(address, port, time.Second) == nil {
 			rec.LogFile = logFile
 			_ = writeServerRecord(dataDir, *rec)
 			_ = cmd.Process.Release()

@@ -3,8 +3,10 @@ package rtsp
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -47,6 +49,7 @@ func newStartCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntP("port", "p", 8554, "RTSP server port")
+	cmd.Flags().String("address", "", "RTSP server listen address (empty listens on all interfaces)")
 	cmd.Flags().BoolP("daemon", "d", false, "Run as daemon (background)")
 
 	return cmd
@@ -89,6 +92,7 @@ func newListEndpointsCmd() *cobra.Command {
 
 func runStartServer(cmd *cobra.Command, args []string) error {
 	port, _ := cmd.Flags().GetInt("port")
+	address, _ := cmd.Flags().GetString("address")
 	daemon, _ := cmd.Flags().GetBool("daemon")
 
 	// Check if we have any authenticated users
@@ -123,27 +127,27 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 	}
 
 	if daemon {
-		rec, err := startDaemon(dataDir, port)
+		rec, err := startDaemon(dataDir, port, address)
 		if err != nil {
 			return fmt.Errorf("failed to start RTSP server in the background: %v", err)
 		}
-		core.Logger.Info().Msgf("RTSP server running in the background on port %d (PID %d)", rec.Port, rec.PID)
+		core.Logger.Info().Msgf("RTSP server running in the background on %s (PID %d)", net.JoinHostPort(rtsp.URLHostForAddress(rec.Address), strconv.Itoa(rec.Port)), rec.PID)
 		core.Logger.Info().Msgf("Log: %s", rec.LogFile)
 		core.Logger.Info().Msgf("Stop it with: tuya-ipc-terminal rtsp stop --port %d", rec.Port)
 		return nil
 	}
 
 	// Create and start RTSP server
-	rtspServer = rtsp.NewRTSPServer(port, storageManager)
+	rtspServer = rtsp.NewRTSPServer(address, port, storageManager)
 
-	core.Logger.Info().Msgf("Starting RTSP server on port %d...", port)
+	core.Logger.Info().Msgf("Starting RTSP server on %s...", net.JoinHostPort(rtsp.URLHostForAddress(address), strconv.Itoa(port)))
 
 	if err := rtspServer.Start(); err != nil {
 		return fmt.Errorf("failed to start RTSP server: %v", err)
 	}
 
 	pid := os.Getpid()
-	if err := writeServerRecord(dataDir, serverRecord{PID: pid, Port: port, Started: time.Now()}); err != nil {
+	if err := writeServerRecord(dataDir, serverRecord{PID: pid, Port: port, Address: address, Started: time.Now()}); err != nil {
 		core.Logger.Warn().Err(err).
 			Msg("Could not write the PID file; rtsp stop and rtsp status will not find this server")
 	}
@@ -221,7 +225,7 @@ func runServerStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println("==================")
 	for _, rec := range servers {
 		answering := "yes"
-		if err := probeRTSP(rec.Port, 2*time.Second); err != nil {
+		if err := probeRTSP(rec.Address, rec.Port, 2*time.Second); err != nil {
 			answering = fmt.Sprintf("no (%v)", err)
 		}
 
@@ -233,7 +237,8 @@ func runServerStatus(cmd *cobra.Command, args []string) error {
 		if rec.LogFile != "" {
 			fmt.Printf("Log: %s\n", rec.LogFile)
 		}
-		fmt.Printf("Access cameras via: rtsp://localhost:%d/[camera-path]\n\n", rec.Port)
+		fmt.Printf("Access cameras via: rtsp://%s/[camera-path]\n\n",
+			net.JoinHostPort(rtsp.URLHostForAddress(rec.Address), strconv.Itoa(rec.Port)))
 	}
 
 	return nil
@@ -257,16 +262,19 @@ func runListEndpoints(cmd *cobra.Command, args []string) error {
 	}
 
 	port := 8554
+	address := ""
 	if servers, err := runningServers(storageManager.GetDataDir()); err == nil && len(servers) == 1 {
 		port = servers[0].Port
+		address = servers[0].Address
 	}
+	endpoint := net.JoinHostPort(rtsp.URLHostForAddress(address), strconv.Itoa(port))
 
 	fmt.Println("Available RTSP Endpoints:")
 	fmt.Println("========================")
 
 	for i, camera := range cameras {
 		fmt.Printf("%d. %s\n", i+1, camera.DeviceName)
-		fmt.Printf("   URL: rtsp://localhost:%d%s\n", port, camera.RTSPPath)
+		fmt.Printf("   URL: rtsp://%s%s\n", endpoint, camera.RTSPPath)
 		fmt.Printf("   Device ID: %s\n", camera.DeviceID)
 		fmt.Printf("   User: %s\n", camera.UserKey)
 		fmt.Println()
@@ -282,8 +290,8 @@ func runListEndpoints(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Example usage:\n")
-	fmt.Printf("  ffplay rtsp://localhost:%d%s\n", port, cameras[0].RTSPPath)
-	fmt.Printf("  vlc rtsp://localhost:%d%s\n", port, cameras[0].RTSPPath)
+	fmt.Printf("  ffplay rtsp://%s%s\n", endpoint, cameras[0].RTSPPath)
+	fmt.Printf("  vlc rtsp://%s%s\n", endpoint, cameras[0].RTSPPath)
 
 	return nil
 }
