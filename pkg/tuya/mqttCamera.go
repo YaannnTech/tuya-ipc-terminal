@@ -119,10 +119,10 @@ func (c *MQTTCameraClient) SendResolution(resolution int) error {
 
 func (c *MQTTCameraClient) SendSpeaker(speaker int) error {
 	// Protocol 312 is used for speaker
-	return c.sendMqttMessage("speaker", 312, "", SpeakerFrame{
+	return c.sendMqttMessageWithTimeout("speaker", 312, "", SpeakerFrame{
 		Mode:  "webrtc",
 		Value: speaker,
-	})
+	}, time.Second)
 }
 
 func (c *MQTTCameraClient) SendDisconnect() error {
@@ -184,6 +184,10 @@ func (c *MQTTCameraClient) onError(err error) {
 }
 
 func (c *MQTTCameraClient) sendMqttMessage(messageType string, protocol int, transactionID string, data interface{}) error {
+	return c.sendMqttMessageWithTimeout(messageType, protocol, transactionID, data, 0)
+}
+
+func (c *MQTTCameraClient) sendMqttMessageWithTimeout(messageType string, protocol int, transactionID string, data interface{}, timeout time.Duration) error {
 	if c.mqttClient.closed.Load() {
 		return errors.New("mqtt client is closed, send mqtt message fail")
 	}
@@ -218,7 +222,14 @@ func (c *MQTTCameraClient) sendMqttMessage(messageType string, protocol int, tra
 	}
 
 	token := c.mqttClient.mqtt.Publish(c.publishTopic, 1, false, payload)
-	if token.Wait() && token.Error() != nil {
+	if timeout > 0 {
+		if !token.WaitTimeout(timeout) {
+			return fmt.Errorf("timed out waiting for MQTT %s publish", messageType)
+		}
+	} else {
+		token.Wait()
+	}
+	if token.Error() != nil {
 		core.Logger.Error().Err(token.Error()).Msgf("Send mqtt message error")
 		return token.Error()
 	}

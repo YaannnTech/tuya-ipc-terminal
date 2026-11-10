@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtp"
+	pion "github.com/pion/webrtc/v4"
+
 	"tuya-ipc-terminal/pkg/storage"
 	"tuya-ipc-terminal/pkg/utils"
 )
@@ -220,4 +223,30 @@ func TestStreamDoesNotBecomeActiveAfterStartupError(t *testing.T) {
 		t.Fatalf("stream revived after startup error: active=%t connecting=%t starting=%t",
 			stream.active, stream.connecting, stream.starting)
 	}
+}
+
+func TestBackchannelSetAndForwardDoNotRace(t *testing.T) {
+	bridge := newTestBridge()
+	packet := &rtp.Packet{Header: rtp.Header{Version: 2}, Payload: []byte{1}}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			track, err := pion.NewTrackLocalStaticRTP(
+				pion.RTPCodecCapability{MimeType: pion.MimeTypeOpus},
+				"audio-backchannel", "pion",
+			)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			bridge.setBackchannel(track)
+		}
+	}()
+
+	for i := 0; i < 1000; i++ {
+		bridge.ForwardBackchannelAudioPacket("s1", packet)
+	}
+	<-done
 }

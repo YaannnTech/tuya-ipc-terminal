@@ -29,6 +29,8 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 - **No leaked connections:** A failed start or a camera disconnect now always closes the WebRTC and MQTT connections, so nothing keeps pulling video from Tuya in the background.
 - **Clients reconnect after a failure:** When a stream fails, its RTSP sessions are closed, so players reconnect and get a fresh stream instead of waiting for packets forever.
 - **Errors are not lost:** A failed connection could be reported as a success because of a race in the internal waiter.
+- **Two-way audio without a data race:** The camera's audio track for talkback is now stored atomically, so an RTSP client sending audio while the track is set up no longer races.
+- **Talkback is audible:** The camera speaker stays muted until it is told otherwise. The bridge now unmutes it with the first talkback packet it forwards (once, even with several talking clients; a failed command is retried at most every 5 seconds) and mutes it again when the last talking client leaves or the stream stops.
 
 ### Command line fixes
 

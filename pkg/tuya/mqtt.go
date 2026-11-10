@@ -80,8 +80,8 @@ func NewMqttClient(clientId, mobileMqttsUrl string, mqttConfig *MQTConfig) (*MQT
 // Stop disconnects the MQTT client.
 func (c *MQTTClient) Stop() {
 	if c.mqtt != nil {
-		c.mqtt.Disconnect(250)
 		c.closed.Store(true)
+		c.mqtt.Disconnect(250)
 	}
 }
 

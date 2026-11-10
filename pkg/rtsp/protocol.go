@@ -188,9 +188,8 @@ func (s *RTSPServer) handleInterleavedRTP(client *RTSPClient) error {
 
 		// Forward to WebRTC bridge
 		if client.stream != nil && client.stream.webrtcBridge != nil &&
-			client.stream.webrtcBridge.rtpForwarder != nil &&
-			client.stream.webrtcBridge.rtpForwarder.OnBackchannelAudio != nil {
-			client.stream.webrtcBridge.rtpForwarder.OnBackchannelAudio(packet)
+			client.stream.webrtcBridge.rtpForwarder != nil {
+			client.stream.webrtcBridge.rtpForwarder.forwardBackchannel(client.session, packet)
 		}
 	}
 
