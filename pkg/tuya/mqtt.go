@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 	"tuya-ipc-terminal/pkg/core"
 	"tuya-ipc-terminal/pkg/utils"
@@ -16,7 +17,7 @@ type MQTTClient struct {
 	uid            string
 	subscribeTopic string
 	cameras        map[string]*MQTTCameraClient // sessionId -> camera
-	closed         bool
+	closed         atomic.Bool
 	Connected      utils.Waiter
 }
 
@@ -76,10 +77,11 @@ func NewMqttClient(clientId, mobileMqttsUrl string, mqttConfig *MQTConfig) (*MQT
 	return client, nil
 }
 
+// Stop disconnects the MQTT client.
 func (c *MQTTClient) Stop() {
 	if c.mqtt != nil {
 		c.mqtt.Disconnect(250)
-		c.closed = true
+		c.closed.Store(true)
 	}
 }
 
@@ -117,7 +119,7 @@ func (c *MQTTClient) onDisconnect(client mqtt.Client, err error) {
 		c.Connected.Done(errors.New("mqtt client disconnected"))
 	}
 
-	c.closed = true
+	c.closed.Store(true)
 }
 
 func (c *MQTTClient) consume(client mqtt.Client, msg mqtt.Message) {
