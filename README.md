@@ -334,6 +334,7 @@ sudo systemctl start tuya-rtsp
 | `dghsxj` | Additional camera type | ✅ Full support |
 | `cdsxj` | Additional camera type | ⚠️ Discovery supported; stream compatibility may vary |
 | `sp_wnq` | Smart bird feeder cameras | ⚠️ Discovery supported; stream compatibility may vary |
+| `ksdjml` | Video peephole cameras | ⚠️ Discovery supported; stream compatibility may vary |
 | Others | Other Tuya camera categories | ❌ Not discovered |
 
 ## 🐛 Troubleshooting
