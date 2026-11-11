@@ -12,6 +12,8 @@ A powerful CLI tool to connect Tuya Smart Cameras to RTSP clients through revers
 
 ## 🍴 What's different in this fork
 
+Changes per release are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ### RTSP server fixes
 
 - **No more stream lockups:** The server no longer holds locks while it waits for the Tuya cloud or tears down a stream, so new clients get their `OPTIONS`/`DESCRIBE` answers while a camera is still starting, and one slow client no longer stalls the others.
@@ -69,12 +71,22 @@ This fork powers the **Tuya IPC Bridge** app for Home Assistant in [YaannnTech/H
 
 ### Installation
 
+From source:
+
 ```bash
 git clone https://github.com/YaannnTech/tuya-ipc-terminal.git
 cd tuya-ipc-terminal
 chmod +x build.sh
 ./build.sh
 ```
+
+Each tagged release also provides prebuilt Linux binaries (amd64, arm64, armv7) with a `SHA256SUMS` file on the [Releases page](https://github.com/YaannnTech/tuya-ipc-terminal/releases), and a multi-arch container image:
+
+```bash
+docker run --rm -it -v ./tuya-data:/data/.tuya-data ghcr.io/yaannntech/tuya-ipc-terminal:latest --help
+```
+
+The image runs as a non-root user (uid 1000) in `/data` and keeps sessions in `/data/.tuya-data`, so mount a directory there that uid 1000 can write. For the RTSP server, publish its port (`-p 8554:8554`).
 
 ### 1-Minute Setup
 
