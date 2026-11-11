@@ -8,7 +8,7 @@ are releases of the original project,
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-11
 
 First release of the fork, based on the original project's 0.0.6.
 
