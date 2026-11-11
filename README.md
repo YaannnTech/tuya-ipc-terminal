@@ -137,6 +137,46 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 ./tuya-ipc-terminal auth add brazil user@example.com --password
 ```
 
+#### QR or password login
+
+QR login is the recommended method. Password login is known to be
+unreliable for some accounts while QR login works for the same account:
+
+- The login can fail with `账号或密码错误！` (wrong account or password)
+  although the password is correct.
+- The login can succeed, but the session sees 0 homes or cameras and
+  requests fail with `内部错误` (internal error). The password session then
+  has a different user ID than the QR session of the same account.
+- OEM accounts (such as LittleElf and many others) do not work with
+  password login. In a test, a LittleElf account registered in Germany
+  (region `eu-central`) failed with `账号或密码错误！` with the default
+  country code and with `--country-code 49`, while QR login with the
+  LittleElf app works. Use QR login with OEM accounts: `auth add`
+  without `--password`, then scan the code with the OEM app you use.
+
+Password login does work for other accounts: In a test, a Smart Life
+account (region `us-west`) logged in with its password and found all of
+its cameras.
+
+Known Tuya error messages are printed with an English explanation next to
+the original text. When a password login finds no cameras, a warning
+points to QR login; the login itself is not rejected.
+
+To report a login problem, run the login again with `TUYA_DEBUG=1`, once
+with QR and once with `--password`, and paste the output into the issue:
+
+```bash
+TUYA_DEBUG=1 ./tuya-ipc-terminal auth add eu-central user@example.com --password
+```
+
+It prints a fingerprint of the user ID, the region and API host fields,
+whether a session ID is present, and the number of homes and devices. The
+password, tokens and cookies are never printed, and the session ID, client
+ID and ecode only as their first 4 characters and their length. The
+fingerprint is the first 8 hex characters of the SHA-256 of the user ID,
+so the full user ID is never printed; it is enough to see whether a QR
+session and a password session belong to the same user.
+
 #### User Management Commands
 
 ```bash

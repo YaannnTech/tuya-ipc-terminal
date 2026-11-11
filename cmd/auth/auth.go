@@ -3,6 +3,7 @@ package auth
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
@@ -513,6 +514,17 @@ func promptPassword() (string, error) {
 	return string(password), nil
 }
 
+// passwordLoginError wraps a password login failure. The OEM/QR hint is added
+// only when the Tuya API itself rejected the login, not for network, TLS, JSON
+// or context errors.
+func passwordLoginError(err error) error {
+	var apiErr *tuya.APIError
+	if errors.As(err, &apiErr) {
+		return fmt.Errorf("password authentication failed: %v\n%s.", err, tuya.OEMLoginHint)
+	}
+	return fmt.Errorf("password authentication failed: %v", err)
+}
+
 // The Tuya login API keys accounts by the phone country code they were
 // registered with. Countries that share a data center without matching its
 // continent code (e.g. Brazil on us-west) need countryCode set explicitly;
@@ -536,8 +548,10 @@ func performPasswordAuthentication(region tuya.Region, email, countryCode string
 	ctx := context.Background()
 	loginResult, err := tuya.PasswordLogin(ctx, httpClient, serverHost, email, password, countryCode)
 	if err != nil {
-		return nil, fmt.Errorf("password authentication failed: %v", err)
+		return nil, passwordLoginError(err)
 	}
+
+	tuya.CheckLoginSession(ctx, os.Stdout, httpClient, serverHost, loginResult, true)
 
 	sessionData := &tuya.SessionData{
 		LoginResult:   loginResult,
@@ -574,6 +588,8 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 	if err != nil {
 		return nil, fmt.Errorf("error polling for login: %v", err)
 	}
+
+	tuya.CheckLoginSession(ctx, os.Stdout, httpClient, serverHost, loginResult, false)
 
 	if loginResult.Email != email {
 		fmt.Println("Logged in with different email than expected!")

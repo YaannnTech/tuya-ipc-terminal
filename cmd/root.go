@@ -31,6 +31,16 @@ Examples:
   tuya-ipc-terminal auth add eu-central user@example.com
   tuya-ipc-terminal cameras refresh
   tuya-ipc-terminal rtsp start --port 8554`,
+	PersistentPreRunE: silenceUsage,
+}
+
+// silenceUsage stops cobra from printing the usage text after a
+// runtime error. Cobra validates arguments and flags before it
+// runs this hook, so wrong arguments and unknown flags still
+// print the usage.
+func silenceUsage(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+	return nil
 }
 
 func Execute(version string) error {

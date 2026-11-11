@@ -338,7 +338,7 @@ func PasswordLogin(ctx context.Context, client *http.Client, serverHost, email, 
 	}
 
 	if !loginResp.Success {
-		return nil, errors.New(loginResp.ErrorMsg)
+		return nil, apiError(loginResp.ErrorMsg)
 	}
 
 	return &loginResp.Result, nil
@@ -381,7 +381,7 @@ func GetLoginToken(ctx context.Context, client *http.Client, serverHost, usernam
 	}
 
 	if !tokenResp.Success {
-		return nil, err
+		return nil, apiError(tokenResp.Msg)
 	}
 
 	return &tokenResp, nil
@@ -422,7 +422,7 @@ func GenerateQRCode(ctx context.Context, client *http.Client, serverHost string)
 	}
 
 	if !qrResponse.Success {
-		return "", errors.New(qrResponse.Msg)
+		return "", apiError(qrResponse.Msg)
 	}
 
 	return qrResponse.Result, nil
@@ -537,7 +537,7 @@ func GetAppInfo(ctx context.Context, client *http.Client, serverHost string) (*A
 	}
 
 	if !appInfoResponse.Success {
-		return nil, errors.New(appInfoResponse.Msg)
+		return nil, apiError(appInfoResponse.Msg)
 	}
 
 	return &appInfoResponse, nil
@@ -578,7 +578,7 @@ func GetMQTTConfig(ctx context.Context, client *http.Client, serverHost string) 
 	}
 
 	if !mqttConfigResponse.Success {
-		return nil, errors.New(mqttConfigResponse.Msg)
+		return nil, apiError(mqttConfigResponse.Msg)
 	}
 
 	return &mqttConfigResponse, nil
@@ -629,7 +629,7 @@ func GetWebRTCConfig(ctx context.Context, client *http.Client, serverHost string
 	}
 
 	if !webRTCConfigResponse.Success {
-		return nil, errors.New(webRTCConfigResponse.Msg)
+		return nil, apiError(webRTCConfigResponse.Msg)
 	}
 
 	return &webRTCConfigResponse, nil
@@ -670,7 +670,7 @@ func GetHomeList(ctx context.Context, client *http.Client, serverHost string) (*
 	}
 
 	if !homeListResponse.Success {
-		return nil, errors.New(homeListResponse.Msg)
+		return nil, apiError(homeListResponse.Msg)
 	}
 
 	return &homeListResponse, nil
@@ -711,7 +711,7 @@ func GetSharedHomeList(ctx context.Context, client *http.Client, serverHost stri
 	}
 
 	if !sharedHomeListResponse.Success {
-		return nil, errors.New(sharedHomeListResponse.Msg)
+		return nil, apiError(sharedHomeListResponse.Msg)
 	}
 
 	return &sharedHomeListResponse, nil
@@ -761,7 +761,7 @@ func GetRoomList(ctx context.Context, client *http.Client, serverHost string, ho
 	}
 
 	if !roomListResponse.Success {
-		return nil, errors.New(roomListResponse.Msg)
+		return nil, apiError(roomListResponse.Msg)
 	}
 
 	return &roomListResponse, nil

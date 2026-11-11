@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
-	"slices"
-	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -19,12 +17,6 @@ import (
 )
 
 var storageManager *storage.StorageManager
-
-// cameraCategories lists the Tuya device categories that discovery treats as
-// cameras: sp = smart camera, dghsxj = another camera type, cdsxj = camera
-// type from upstream PR #32, sp_wnq = smart bird feeder camera,
-// ksdjml = video peephole camera (some were moved here from sp).
-var cameraCategories = []string{"sp", "dghsxj", "cdsxj", "sp_wnq", "ksdjml"}
 
 func SetStorageManager(sm *storage.StorageManager) {
 	storageManager = sm
@@ -245,42 +237,10 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 		return nil, fmt.Errorf("session is invalid: %v", err)
 	}
 
-	var devices []tuya.Device
-
-	// Get home list
-	homes, _ := tuya.GetHomeList(ctx, httpClient, user.SessionData.ServerHost)
-	if homes != nil && len(homes.Result) > 0 {
-		for _, home := range homes.Result {
-			// Get room list with devices
-			roomList, err := tuya.GetRoomList(ctx, httpClient, user.SessionData.ServerHost, strconv.Itoa(home.Gid))
-			if err != nil {
-				continue // Skip this home if we can't get rooms
-			}
-
-			// Extract cameras from rooms
-			for _, room := range roomList.Result {
-				for _, device := range room.DeviceList {
-					if isCameraCategory(device.Category) && !containsDevice(devices, device.DeviceId) {
-						devices = append(devices, device)
-					}
-				}
-			}
-		}
-	}
-
-	// Get shared home list
-	sharedHomes, _ := tuya.GetSharedHomeList(ctx, httpClient, user.SessionData.ServerHost)
-	if sharedHomes != nil && len(sharedHomes.Result.SecurityWebCShareInfoList) > 0 {
-
-		// Extract cameras from shared homes
-		for _, sharedHome := range sharedHomes.Result.SecurityWebCShareInfoList {
-			for _, device := range sharedHome.DeviceInfoList {
-				if isCameraCategory(device.Category) && !containsDevice(devices, device.DeviceId) {
-					devices = append(devices, device)
-				}
-			}
-		}
-	}
+	// Cameras of all own homes (rooms) and of shared homes
+	_, devices := tuya.ListDevices(ctx, httpClient, user.SessionData.ServerHost, func(device tuya.Device) bool {
+		return tuya.IsCameraCategory(device.Category)
+	})
 
 	if len(devices) == 0 {
 		return []storage.CameraInfo{}, nil
@@ -311,10 +271,6 @@ func discoverCamerasForUser(user *storage.UserSession) ([]storage.CameraInfo, er
 	}
 
 	return allCameras, nil
-}
-
-func isCameraCategory(category string) bool {
-	return slices.Contains(cameraCategories, category)
 }
 
 func createHTTPClientWithSession(session *tuya.SessionData) *http.Client {
@@ -363,13 +319,4 @@ func getUserFromKey(userKey string) (*storage.UserSession, error) {
 	}
 
 	return nil, fmt.Errorf("user not found for key: %s", userKey)
-}
-
-func containsDevice(devices []tuya.Device, deviceID string) bool {
-	for _, device := range devices {
-		if device.DeviceId == deviceID {
-			return true
-		}
-	}
-	return false
 }

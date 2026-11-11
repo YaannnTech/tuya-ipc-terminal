@@ -8,6 +8,22 @@ are releases of the original project,
 
 ## [Unreleased]
 
+### Added
+
+- Password login diagnostics (diagnostics part of #13): Known Chinese Tuya
+  error messages get an English explanation next to the original text,
+  failed password logins and password sessions without cameras point to
+  QR login (password login does not work for OEM accounts such as
+  LittleElf and many others; it worked in a test with a Smart Life
+  account), and
+  `TUYA_DEBUG=1` prints the login result fields (redacted) for comparing
+  QR and password sessions.
+
+### Fixed
+
+- A rejected login token request no longer ends in a nil pointer panic
+  during password login; the Tuya error is returned instead.
+
 ## [0.1.0] - 2026-11-11
 
 First release of the fork, based on the original project's 0.0.6.
