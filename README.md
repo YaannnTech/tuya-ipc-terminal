@@ -162,10 +162,13 @@ with QR and once with `--password`, and paste the output into the issue:
 TUYA_DEBUG=1 ./tuya-ipc-terminal auth add eu-central user@example.com --password
 ```
 
-It prints the user ID, region and API host fields, whether a session ID is
-present, and the number of homes and devices. The password, tokens and
+It prints a fingerprint of the user ID, the region and API host fields,
+whether a session ID is present, and the number of homes and devices. The password, tokens and
 cookies are never printed, and the session ID, client ID and ecode only as
-their first 4 characters and their length. The user ID is printed in full.
+their first 4 characters and their length. The fingerprint is the first 8
+hex characters of the SHA-256 of the user ID, so the full user ID is never
+printed; it is enough to see whether a QR session and a password session
+belong to the same user.
 
 #### User Management Commands
 

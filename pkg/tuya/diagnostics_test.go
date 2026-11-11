@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -93,6 +94,23 @@ func TestPasswordLoginExplainsKnownMessages(t *testing.T) {
 	}
 }
 
+func TestPasswordLoginErrorTypes(t *testing.T) {
+	server := testLoginServer(t, "内部错误")
+	_, err := PasswordLogin(context.Background(), server.Client(), testServerHost(server), "user@example.com", testPasswd, "49")
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Message != "内部错误" || apiErr.Error() == apiErr.Message {
+		t.Errorf("API failure err = %#v, want *APIError with original and explained message", err)
+	}
+
+	closed := testLoginServer(t, "内部错误")
+	client, host := closed.Client(), testServerHost(closed)
+	closed.Close()
+	_, err = PasswordLogin(context.Background(), client, host, "user@example.com", testPasswd, "49")
+	if err == nil || errors.As(err, &apiErr) {
+		t.Errorf("transport failure err = %#v, want non-API error", err)
+	}
+}
+
 func TestGetLoginTokenFailureIsAnError(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"success":false,"errorMsg":"内部错误"}`)
@@ -147,12 +165,12 @@ func TestCheckLoginSessionDebugOutputHasNoSecrets(t *testing.T) {
 	CheckLoginSession(context.Background(), &out, server.Client(), testServerHost(server), result, true)
 
 	text := out.String()
-	for _, secret := range []string{testSid, testEcode, testClient, testPasswd, testCookie, testToken} {
+	for _, secret := range []string{testSid, testEcode, testClient, testPasswd, testCookie, testToken, testUID} {
 		if strings.Contains(text, secret) {
 			t.Errorf("debug output contains secret %q:\n%s", secret, text)
 		}
 	}
-	for _, want := range []string{testUID, "region code: EU", "sid present: true", "home count: 1", "device count: 2 (cameras: 1)"} {
+	for _, want := range []string{"uid fingerprint: " + uidFingerprint(testUID), "region code: EU", "sid present: true", "home count: 1", "device count: 2 (cameras: 1)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("debug output lacks %q:\n%s", want, text)
 		}

@@ -2,7 +2,8 @@ package tuya
 
 import (
 	"context"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,9 +48,23 @@ func ExplainMessage(msg string) string {
 	return msg
 }
 
-// apiError turns the errorMsg of an unsuccessful API response into an error.
+// APIError is an error reported by the Tuya cloud in an unsuccessful API
+// response, as opposed to a network, TLS, JSON or context error.
+type APIError struct {
+	// Message is the errorMsg exactly as the API returned it.
+	Message string
+	// Explained is Message with an English explanation when it is known.
+	Explained string
+}
+
+// Error returns the explained message.
+func (e *APIError) Error() string {
+	return e.Explained
+}
+
+// apiError turns the errorMsg of an unsuccessful API response into an *APIError.
 func apiError(msg string) error {
-	return errors.New(ExplainMessage(msg))
+	return &APIError{Message: msg, Explained: ExplainMessage(msg)}
 }
 
 // DebugEnabled reports whether the TUYA_DEBUG environment variable is set to
@@ -117,6 +132,13 @@ func ListDevices(ctx context.Context, client *http.Client, serverHost string, ke
 	return homeCount, devices
 }
 
+// uidFingerprint returns the first 8 hex characters of the SHA-256 of uid. It
+// is enough to compare two sessions without publishing the account's user ID.
+func uidFingerprint(uid string) string {
+	sum := sha256.Sum256([]byte(uid))
+	return hex.EncodeToString(sum[:])[:8]
+}
+
 // PrintLoginDebug writes the fields of a login result that help to compare a
 // QR session with a password session. Secrets (sid, ecode) are redacted and
 // the password, tokens and cookies are never part of the output.
@@ -127,7 +149,7 @@ func PrintLoginDebug(w io.Writer, result *LoginResult, serverHost string, homeCo
 		fmt.Fprintln(w, "  login result: (none)")
 		return
 	}
-	fmt.Fprintf(w, "  uid: %s\n", result.Uid)
+	fmt.Fprintf(w, "  uid fingerprint: %s\n", uidFingerprint(result.Uid))
 	fmt.Fprintf(w, "  region code: %s\n", result.Domain.RegionCode)
 	fmt.Fprintf(w, "  mobile api url: %s\n", result.Domain.MobileApiUrl)
 	fmt.Fprintf(w, "  gw api url: %s\n", result.Domain.GwApiUrl)
