@@ -13,9 +13,11 @@ are releases of the original project,
 - Password login diagnostics (diagnostics part of #13): Known Chinese Tuya
   error messages get an English explanation next to the original text,
   failed password logins and password sessions without cameras point to
-  QR login (Tuya OEM apps such as LittleElf may not support password
-  login), and `TUYA_DEBUG=1` prints the login result fields (redacted)
-  for comparing QR and password sessions.
+  QR login (password login does not work for OEM accounts such as
+  LittleElf and many others; it worked in a test with a Smart Life
+  account), and
+  `TUYA_DEBUG=1` prints the login result fields (redacted) for comparing
+  QR and password sessions.
 
 ### Fixed
 

@@ -15,8 +15,8 @@ import (
 
 // OEMLoginHint is shown next to password login failures and next to a password
 // session that finds no cameras.
-const OEMLoginHint = "If the account was created in a Tuya OEM app (for example LittleElf), " +
-	"password login may not work; try QR login (auth add without --password)"
+const OEMLoginHint = "Password login does not work for OEM accounts (such as LittleElf and many others); " +
+	"use QR login (auth add without --password) and scan the code with the OEM app you use"
 
 // CameraCategories lists the Tuya device categories that discovery treats as
 // cameras: sp = smart camera, dghsxj = another camera type, cdsxj = camera
