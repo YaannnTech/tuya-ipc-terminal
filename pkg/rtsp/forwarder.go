@@ -30,6 +30,9 @@ type RTPForwarder struct {
 	clients map[string]*RTPClient
 	mutex   sync.RWMutex
 
+	videoMutex     sync.Mutex
+	videoTimestamp videoTimestampScaler
+
 	// RTP session info
 	videoSSRC atomic.Uint32
 	audioSSRC atomic.Uint32
@@ -85,7 +88,10 @@ type RTPClient struct {
 }
 
 func NewRTPForwarder() *RTPForwarder {
-	forwarder := &RTPForwarder{clients: make(map[string]*RTPClient)}
+	forwarder := &RTPForwarder{
+		clients:        make(map[string]*RTPClient),
+		videoTimestamp: newVideoTimestampScaler(),
+	}
 	forwarder.audioSSRC.Store(1)
 	forwarder.firstVideoPacket.Store(true)
 	forwarder.firstAudioPacket.Store(true)
@@ -302,6 +308,18 @@ func (rf *RTPForwarder) forwardVideo(packet *rtp.Packet) (deadIDs []string, dead
 		return
 	}
 
+	rf.videoMutex.Lock()
+	defer rf.videoMutex.Unlock()
+	failed := make(map[string]bool)
+	for _, forwarded := range rf.videoTimestamp.push(packet, time.Now()) {
+		ids, errs := rf.sendVideo(forwarded, failed)
+		deadIDs = append(deadIDs, ids...)
+		deadErrs = append(deadErrs, errs...)
+	}
+	return
+}
+
+func (rf *RTPForwarder) sendVideo(packet *rtp.Packet, failed map[string]bool) (deadIDs []string, deadErrs []error) {
 	// The RTSP SDP advertises video as payload type 96 for both H.264 and H.265.
 	// Tuya's HEVC data channel uses PT 95, which RTSP clients discard as unknown.
 	forwardedPacket := *packet
@@ -315,12 +333,16 @@ func (rf *RTPForwarder) forwardVideo(packet *rtp.Packet) (deadIDs []string, dead
 
 	// Forward to all clients
 	for sessionID, client := range rf.clients {
+		if failed[sessionID] {
+			continue
+		}
 		client.lastActivity.Store(time.Now().UnixNano())
 
 		if client.transportMode == TransportUDP {
 			if client.videoConn != nil {
 				if _, err := client.videoConn.Write(data); err != nil {
 					if isDeadClientError(err) {
+						failed[sessionID] = true
 						deadIDs = append(deadIDs, sessionID)
 						deadErrs = append(deadErrs, err)
 					} else {
@@ -335,6 +357,7 @@ func (rf *RTPForwarder) forwardVideo(packet *rtp.Packet) (deadIDs []string, dead
 			if client.tcpConn != nil {
 				if err := rf.sendInterleavedRTP(client.tcpConn, client.videoRTPChannel, data); err != nil {
 					if isDeadClientError(err) {
+						failed[sessionID] = true
 						deadIDs = append(deadIDs, sessionID)
 						deadErrs = append(deadErrs, err)
 					} else {
@@ -423,6 +446,9 @@ func (rf *RTPForwarder) Stop() {
 	rf.mutex.Lock()
 	clients := rf.clients
 	rf.clients = make(map[string]*RTPClient)
+	rf.videoMutex.Lock()
+	rf.videoTimestamp.reset()
+	rf.videoMutex.Unlock()
 	rf.mutex.Unlock()
 
 	for _, client := range clients {

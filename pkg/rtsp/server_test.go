@@ -209,6 +209,7 @@ func TestCleanupInactiveStreamsSynchronizesWithClientActivity(t *testing.T) {
 }
 
 func TestUDPForwarderSendsPacketsToRTSPPeerAddress(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	peerAddr, err := net.ResolveUDPAddr("udp", "127.0.0.2:0")
 	if err != nil {
 		t.Fatal(err)
@@ -249,6 +250,7 @@ func TestUDPForwarderSendsPacketsToRTSPPeerAddress(t *testing.T) {
 }
 
 func TestTCPForwarderUsesSDPVideoPayloadType(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	clientConn, serverConn := net.Pipe()
 	defer clientConn.Close()
 	defer serverConn.Close()

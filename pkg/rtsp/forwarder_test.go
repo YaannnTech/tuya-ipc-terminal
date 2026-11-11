@@ -32,6 +32,7 @@ func waitForDeadClient(t *testing.T, dead <-chan string, want string) {
 }
 
 func TestForwarderDropsClosedTCPClient(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	clientConn, serverConn := net.Pipe()
 	clientConn.Close()
 	defer serverConn.Close()
@@ -52,6 +53,7 @@ func TestForwarderDropsClosedTCPClient(t *testing.T) {
 }
 
 func TestForwarderDropsStalledTCPClientWithoutBlockingOthers(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	old := tcpWriteTimeout
 	tcpWriteTimeout = 100 * time.Millisecond
 	defer func() { tcpWriteTimeout = old }()
@@ -115,6 +117,7 @@ func TestInterleavedWriteClearsDeadline(t *testing.T) {
 }
 
 func TestForwarderDropsUDPClientWithClosedPort(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	listener, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -170,6 +173,7 @@ func TestForwarderStopIsRaceSafeWithClientChanges(t *testing.T) {
 }
 
 func TestDeadRTPClientClosesItsRTSPSession(t *testing.T) {
+	t.Setenv("TUYA_VIDEO_TS_DIVISOR", "1")
 	clientConn, peerConn := net.Pipe()
 	defer peerConn.Close()
 
