@@ -536,8 +536,10 @@ func performPasswordAuthentication(region tuya.Region, email, countryCode string
 	ctx := context.Background()
 	loginResult, err := tuya.PasswordLogin(ctx, httpClient, serverHost, email, password, countryCode)
 	if err != nil {
-		return nil, fmt.Errorf("password authentication failed: %v", err)
+		return nil, fmt.Errorf("password authentication failed: %v\n%s.", err, tuya.OEMLoginHint)
 	}
+
+	tuya.CheckLoginSession(ctx, os.Stdout, httpClient, serverHost, loginResult, true)
 
 	sessionData := &tuya.SessionData{
 		LoginResult:   loginResult,
@@ -574,6 +576,8 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 	if err != nil {
 		return nil, fmt.Errorf("error polling for login: %v", err)
 	}
+
+	tuya.CheckLoginSession(ctx, os.Stdout, httpClient, serverHost, loginResult, false)
 
 	if loginResult.Email != email {
 		fmt.Println("Logged in with different email than expected!")

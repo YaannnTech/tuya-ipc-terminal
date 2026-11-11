@@ -137,6 +137,36 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 ./tuya-ipc-terminal auth add brazil user@example.com --password
 ```
 
+#### QR or password login
+
+QR login is the recommended method. Password login is known to be
+unreliable for some accounts while QR login works for the same account:
+
+- The login can fail with `账号或密码错误！` (wrong account or password)
+  although the password is correct.
+- The login can succeed, but the session sees 0 homes or cameras and
+  requests fail with `内部错误` (internal error). The password session then
+  has a different user ID than the QR session of the same account.
+- Accounts created in a Tuya OEM app (for example LittleElf) may not work
+  with password login at all (not confirmed). Use QR login with such
+  accounts: `auth add` without `--password`.
+
+Known Tuya error messages are printed with an English explanation next to
+the original text. When a password login finds no cameras, a warning
+points to QR login; the login itself is not rejected.
+
+To report a login problem, run the login again with `TUYA_DEBUG=1`, once
+with QR and once with `--password`, and paste the output into the issue:
+
+```bash
+TUYA_DEBUG=1 ./tuya-ipc-terminal auth add eu-central user@example.com --password
+```
+
+It prints the user ID, region and API host fields, whether a session ID is
+present, and the number of homes and devices. The password, tokens and
+cookies are never printed, and the session ID, client ID and ecode only as
+their first 4 characters and their length. The user ID is printed in full.
+
 #### User Management Commands
 
 ```bash
