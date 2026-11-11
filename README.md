@@ -227,6 +227,19 @@ working on a `ksdjml` peephole camera by [@sintech](https://github.com/sintech);
 other cameras may not support it, and intermittent artifacts are still under
 investigation. The default, `/hd`, and `/sd` modes are unchanged.
 
+### ⏱️ Video Timestamp Correction
+
+Some cameras send video RTP timestamps that advance about 1000 times too fast,
+which breaks recordings (NVRs, HomeKit Secure Video) while live viewing works.
+The server detects this automatically and corrects it. Detection holds back
+video for about half a second at stream start, or up to two seconds if frames
+are sparse; audio is not held back. Set `TUYA_VIDEO_TS_DIVISOR=1000` when
+starting the server to apply the correction immediately, or set it to `1` to
+disable detection and correction. Other positive integer divisors up to
+4294967295 are also supported. The setting applies to all cameras in that
+server process. If the detection buffer reaches its limit, timestamps are left
+unchanged.
+
 
 ### 🏠 Home Automation Integration
 
