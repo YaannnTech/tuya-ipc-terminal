@@ -1,0 +1,5 @@
+failure-threshold: warning
+ignored:
+  # Alpine packages are not pinned: The base image tag pins the release, and
+  # pinned package versions disappear from the Alpine mirrors.
+  - DL3018
