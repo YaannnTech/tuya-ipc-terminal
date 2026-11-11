@@ -8,7 +8,8 @@ import (
 	"tuya-ipc-terminal/pkg/core"
 )
 
-const VERSION = "0.0.6"
+// VERSION is a var so release builds can override it with -ldflags "-X main.VERSION=...".
+var VERSION = "0.1.0"
 
 func main() {
 	core.InitLogger()

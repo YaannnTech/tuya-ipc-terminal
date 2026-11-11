@@ -31,7 +31,10 @@ print_section() {
 }
 
 # Build information
-VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# Version from the latest v* release tag, without the "v" (like the release
+# workflow). Without a tag the VERSION default in main.go stays.
+VERSION=$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null || true)
+VERSION=${VERSION#v}
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 GO_VERSION=$(go version | awk '{print $3}')
 
@@ -47,7 +50,10 @@ go list ./...
 
 # Build for current platform
 print_section "Building binary..."
-LDFLAGS="-s -w -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}"
+LDFLAGS="-s -w -X main.buildTime=${BUILD_TIME}"
+if [ -n "${VERSION}" ]; then
+    LDFLAGS="${LDFLAGS} -X main.VERSION=${VERSION}"
+fi
 go build -ldflags "${LDFLAGS}" -o tuya-ipc-terminal .
 
 print_color $GREEN "✓ Build complete: ./tuya-ipc-terminal"
@@ -58,7 +64,7 @@ if command -v ls >/dev/null 2>&1; then
     print_color $GREEN "✓ Binary size: ${SIZE}"
 fi
 
-print_color $GREEN "✓ Version: ${VERSION}"
+print_color $GREEN "✓ Version: $(./tuya-ipc-terminal --version | awk '{print $NF}')"
 print_color $GREEN "✓ Build time: ${BUILD_TIME}"
 print_color $GREEN "✓ Go version: ${GO_VERSION}"
 

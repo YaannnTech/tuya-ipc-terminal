@@ -1,0 +1,14 @@
+.git
+.github
+.tuya-data
+.tuya_*
+.tuya-*
+tuya_session_*
+.tmp
+AGENTS.md
+tuya-ipc-terminal
+tuya-ipc-terminal-*
+*.md
+LICENSE
+Dockerfile
+.dockerignore
