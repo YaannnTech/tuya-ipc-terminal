@@ -8,6 +8,8 @@ are releases of the original project,
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
 ### Added
 
 - Password login diagnostics (diagnostics part of #13): Known Chinese Tuya
@@ -15,14 +17,18 @@ are releases of the original project,
   failed password logins and password sessions without cameras point to
   QR login (password login does not work for OEM accounts such as
   LittleElf and many others; it worked in a test with a Smart Life
-  account), and
-  `TUYA_DEBUG=1` prints the login result fields (redacted) for comparing
-  QR and password sessions.
+  account), and `TUYA_DEBUG=1` prints the login result fields (redacted)
+  for comparing QR and password sessions (#29).
+
+### Changed
+
+- Runtime errors (for example a failed login) no longer print the command
+  usage text after the error message (#29).
 
 ### Fixed
 
 - A rejected login token request no longer ends in a nil pointer panic
-  during password login; the Tuya error is returned instead.
+  during password login; the Tuya error is returned instead (#29).
 
 ## [0.1.0] - 2026-11-11
 
@@ -75,5 +81,6 @@ First release of the fork, based on the original project's 0.0.6.
   current `golang.org/x` modules), which fixes the vulnerabilities
   `govulncheck` reported. Building needs Go 1.26 or newer.
 
-[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YaannnTech/tuya-ipc-terminal/releases/tag/v0.1.0

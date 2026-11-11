@@ -9,7 +9,7 @@ import (
 )
 
 // VERSION is a var so release builds can override it with -ldflags "-X main.VERSION=...".
-var VERSION = "0.1.0"
+var VERSION = "0.2.0"
 
 func main() {
 	core.InitLogger()
