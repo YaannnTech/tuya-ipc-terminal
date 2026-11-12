@@ -94,7 +94,7 @@ func TestWaitForTimesOut(t *testing.T) {
 	var never utils.Waiter
 
 	start := time.Now()
-	err := bridge.waitFor(&never, "the camera stream")
+	err := bridge.session.Load().waitFor(&never, "the camera stream")
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("waitFor() = %v, want a timeout error", err)
 	}
@@ -114,7 +114,7 @@ func TestStopDoesNotDeadlockWhileStartIsWaiting(t *testing.T) {
 		bridge.mutex.Lock()
 		defer bridge.mutex.Unlock()
 		close(waiting)
-		started <- bridge.waitFor(&never, "the camera stream")
+		started <- bridge.session.Load().waitFor(&never, "the camera stream")
 	}()
 	<-waiting
 
@@ -206,19 +206,26 @@ func TestBridgeErrorClosesSessionsOfAStreamWithClients(t *testing.T) {
 
 func TestErrorsAfterOwnShutdownAreNotReported(t *testing.T) {
 	bridge := newTestBridge()
-	reported := 0
-	bridge.OnError = func(error) { reported++ }
+	reported := make(chan error, 2)
+	bridge.OnError = func(err error) { reported <- err }
+	if err := bridge.session.Load().markReady(); err != nil {
+		t.Fatal(err)
+	}
 
-	bridge.handleError("test", errors.New("data channel failed"))
-	if reported != 1 {
-		t.Fatalf("OnError called %d time(s) for an error before shutdown, want 1", reported)
+	bridge.session.Load().handleError("test", errors.New("data channel failed"))
+	select {
+	case <-reported:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnError was not called before shutdown")
 	}
 
 	bridge.Stop()
 	// e.g. the camera confirming the disconnect that Stop sent
-	bridge.handleError("test", errors.New("camera client disconnected"))
-	if reported != 1 {
+	bridge.session.Load().handleError("test", errors.New("camera client disconnected"))
+	select {
+	case <-reported:
 		t.Fatalf("OnError called for an error after the bridge shut itself down")
+	default:
 	}
 }
 
@@ -261,7 +268,7 @@ func TestBackchannelSetAndForwardDoNotRace(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			bridge.setBackchannel(track)
+			bridge.session.Load().setBackchannel(track)
 		}
 	}()
 

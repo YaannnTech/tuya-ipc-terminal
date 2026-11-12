@@ -77,9 +77,9 @@ func newTalkbackBridge(t *testing.T) (*WebRTCBridge, *speakerRecorder) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge.setBackchannel(track)
+	bridge.session.Load().setBackchannel(track)
 	rec := &speakerRecorder{}
-	bridge.speaker.setSender(rec.send)
+	bridge.session.Load().speaker.setSender(rec.send)
 	return bridge, rec
 }
 
@@ -102,11 +102,11 @@ func TestSpeakerTurnedOnOnceUnderConcurrency(t *testing.T) {
 	}
 	wg.Wait()
 
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 	for i := 0; i < 3; i++ {
 		bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-		waitSpeaker(t, &bridge.speaker)
+		waitSpeaker(t, &bridge.session.Load().speaker)
 	}
 	expectCalls(t, rec, 1)
 }
@@ -114,11 +114,11 @@ func TestSpeakerTurnedOnOnceUnderConcurrency(t *testing.T) {
 func TestSpeakerNotTurnedOnWithoutBackchannel(t *testing.T) {
 	bridge := newTestBridge()
 	rec := &speakerRecorder{}
-	bridge.speaker.setSender(rec.send)
+	bridge.session.Load().speaker.setSender(rec.send)
 
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
 
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec)
 }
 
@@ -127,23 +127,23 @@ func TestSpeakerRetriesAfterFailure(t *testing.T) {
 	rec.setErr(errors.New("mqtt down"))
 
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 	for i := 0; i < 20; i++ {
 		bridge.ForwardBackchannelAudioPacket("a", talkPacket())
 	}
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 
 	rec.setErr(nil)
-	bridge.speaker.mu.Lock()
-	bridge.speaker.lastFail = time.Now().Add(-speakerRetryInterval)
-	bridge.speaker.mu.Unlock()
+	bridge.session.Load().speaker.mu.Lock()
+	bridge.session.Load().speaker.lastFail = time.Now().Add(-speakerRetryInterval)
+	bridge.session.Load().speaker.mu.Unlock()
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 1)
 }
 
@@ -152,20 +152,20 @@ func TestSpeakerTurnedOffWhenLastClientLeaves(t *testing.T) {
 
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
 	bridge.ForwardBackchannelAudioPacket("b", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 
-	bridge.speaker.clientLeft("c") // never talked
-	bridge.speaker.clientLeft("a")
-	waitSpeaker(t, &bridge.speaker)
+	bridge.session.Load().speaker.clientLeft("c") // never talked
+	bridge.session.Load().speaker.clientLeft("a")
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 
-	bridge.speaker.clientLeft("b")
-	waitSpeaker(t, &bridge.speaker)
+	bridge.session.Load().speaker.clientLeft("b")
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 
-	bridge.speaker.clientLeft("b")
-	waitSpeaker(t, &bridge.speaker)
+	bridge.session.Load().speaker.clientLeft("b")
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 }
 
@@ -177,10 +177,10 @@ func TestSpeakerClientRemovedFromForwarderTurnsItOff(t *testing.T) {
 	bridge.rtpForwarder.mutex.Unlock()
 
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	bridge.rtpForwarder.RemoveClient("a")
 
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 }
 
@@ -192,13 +192,13 @@ func TestSpeakerTurnedOffOnStopOnly(t *testing.T) {
 
 	bridge, rec = newTalkbackBridge(t)
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	bridge.closeResources()
 	expectCalls(t, rec, 1, 0)
 
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	bridge.speaker.clientLeft("a")
-	waitSpeaker(t, &bridge.speaker)
+	bridge.session.Load().speaker.clientLeft("a")
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 }
 
@@ -211,14 +211,18 @@ func TestSpeakerStopDoesNotBlockOnStuckSend(t *testing.T) {
 	release := make(chan struct{})
 	started := make(chan struct{})
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
-	bridge.speaker.setSender(func(int) error { close(started); <-release; return nil })
-	bridge.speaker.clientLeft("a")
+	waitSpeaker(t, &bridge.session.Load().speaker)
+	bridge.session.Load().speaker.setSender(func(int) error {
+		close(started)
+		<-release
+		return nil
+	})
+	bridge.session.Load().speaker.clientLeft("a")
 	<-started
 
 	done := make(chan struct{})
 	go func() {
-		bridge.speaker.stop()
+		bridge.session.Load().speaker.stop()
 		close(done)
 	}()
 	select {
@@ -229,14 +233,14 @@ func TestSpeakerStopDoesNotBlockOnStuckSend(t *testing.T) {
 		t.Fatal("stop blocked on a stuck SendSpeaker")
 	}
 	close(release)
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 }
 
 func TestSpeakerSerializesOffAndNewTalker(t *testing.T) {
 	bridge, rec := newTalkbackBridge(t)
 	offStarted := make(chan struct{})
 	releaseOff := make(chan struct{})
-	bridge.speaker.setSender(func(value int) error {
+	bridge.session.Load().speaker.setSender(func(value int) error {
 		if value == 0 {
 			close(offStarted)
 			<-releaseOff
@@ -244,18 +248,18 @@ func TestSpeakerSerializesOffAndNewTalker(t *testing.T) {
 		return rec.send(value)
 	})
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
-	bridge.speaker.clientLeft("a")
+	waitSpeaker(t, &bridge.session.Load().speaker)
+	bridge.session.Load().speaker.clientLeft("a")
 	<-offStarted
-	bridge.speaker.mu.Lock()
-	offDone := bridge.speaker.done
-	bridge.speaker.mu.Unlock()
+	bridge.session.Load().speaker.mu.Lock()
+	offDone := bridge.session.Load().speaker.done
+	bridge.session.Load().speaker.mu.Unlock()
 	bridge.ForwardBackchannelAudioPacket("b", talkPacket())
-	bridge.speaker.mu.Lock()
-	sameWorker := offDone != nil && bridge.speaker.done == offDone
-	bridge.speaker.mu.Unlock()
+	bridge.session.Load().speaker.mu.Lock()
+	sameWorker := offDone != nil && bridge.session.Load().speaker.done == offDone
+	bridge.session.Load().speaker.mu.Unlock()
 	close(releaseOff)
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	if !sameWorker {
 		t.Fatal("speaker command worker changed while off was in flight")
 	}
@@ -269,7 +273,7 @@ func TestSpeakerStopWaitsForInFlightOn(t *testing.T) {
 	}
 	started := make(chan struct{})
 	release := make(chan struct{})
-	bridge.speaker.setSender(func(value int) error {
+	bridge.session.Load().speaker.setSender(func(value int) error {
 		if value == 1 {
 			close(started)
 			<-release
@@ -292,15 +296,15 @@ func TestSpeakerStopWaitsForInFlightOn(t *testing.T) {
 	}
 	stopped := make(chan struct{})
 	go func() {
-		bridge.speaker.stop()
+		bridge.session.Load().speaker.stop()
 		close(stopped)
 	}()
 	// Observe the closed state before allowing the pending command to finish.
 	deadline := time.Now().Add(4 * time.Second)
 	for {
-		bridge.speaker.mu.Lock()
-		closed := bridge.speaker.closed
-		bridge.speaker.mu.Unlock()
+		bridge.session.Load().speaker.mu.Lock()
+		closed := bridge.session.Load().speaker.closed
+		bridge.session.Load().speaker.mu.Unlock()
 		if closed {
 			break
 		}
@@ -311,7 +315,7 @@ func TestSpeakerStopWaitsForInFlightOn(t *testing.T) {
 		select {
 		case <-stopped:
 			close(release)
-			waitSpeaker(t, &bridge.speaker)
+			waitSpeaker(t, &bridge.session.Load().speaker)
 			t.Fatal("stop returned before the in-flight command completed")
 		default:
 			runtime.Gosched()
@@ -320,7 +324,7 @@ func TestSpeakerStopWaitsForInFlightOn(t *testing.T) {
 	select {
 	case <-stopped:
 		close(release)
-		waitSpeaker(t, &bridge.speaker)
+		waitSpeaker(t, &bridge.session.Load().speaker)
 		t.Fatal("stop returned before the in-flight command completed")
 	case <-time.After(25 * time.Millisecond):
 	}
@@ -333,10 +337,10 @@ func TestSpeakerFailedOnIsMutedWhenClientLeaves(t *testing.T) {
 	bridge, rec := newTalkbackBridge(t)
 	rec.setErr(errors.New("uncertain publish"))
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	rec.setErr(nil)
-	bridge.speaker.clientLeft("a")
-	waitSpeaker(t, &bridge.speaker)
+	bridge.session.Load().speaker.clientLeft("a")
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 }
 
@@ -346,11 +350,11 @@ func TestSpeakerRemovedClientCannotRestartTalkback(t *testing.T) {
 		t.Fatal(err)
 	}
 	bridge.rtpForwarder.forwardBackchannel("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	bridge.rtpForwarder.RemoveClient("a")
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	bridge.rtpForwarder.forwardBackchannel("a", talkPacket())
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1, 0)
 }
 
@@ -362,7 +366,7 @@ func TestSpeakerAbandonsTimedOutInFlightOn(t *testing.T) {
 	bridge, rec := newTalkbackBridge(t)
 	started := make(chan struct{})
 	release := make(chan struct{})
-	bridge.speaker.setSender(func(value int) error {
+	bridge.session.Load().speaker.setSender(func(value int) error {
 		if value == 1 {
 			close(started)
 			<-release
@@ -371,9 +375,9 @@ func TestSpeakerAbandonsTimedOutInFlightOn(t *testing.T) {
 	})
 	bridge.ForwardBackchannelAudioPacket("a", talkPacket())
 	<-started
-	bridge.speaker.stop()
+	bridge.session.Load().speaker.stop()
 	close(release)
-	waitSpeaker(t, &bridge.speaker)
+	waitSpeaker(t, &bridge.session.Load().speaker)
 	expectCalls(t, rec, 1)
 }
 
@@ -384,13 +388,13 @@ func TestSpeakerDeadClientAndInactiveCleanup(t *testing.T) {
 		bridge.rtpForwarder.clients["a"] = &RTPClient{sessionID: "a", transportMode: mode}
 		bridge.rtpForwarder.mutex.Unlock()
 		bridge.rtpForwarder.forwardBackchannel("a", talkPacket())
-		waitSpeaker(t, &bridge.speaker)
+		waitSpeaker(t, &bridge.session.Load().speaker)
 		if mode == TransportTCP {
 			bridge.rtpForwarder.dropDeadClients([]string{"a"}, "video", []error{errors.New("closed")})
 		} else {
 			bridge.rtpForwarder.CleanupInactiveClients(time.Second)
 		}
-		waitSpeaker(t, &bridge.speaker)
+		waitSpeaker(t, &bridge.session.Load().speaker)
 	}
 	expectCalls(t, rec, 1, 0, 1, 0)
 }
@@ -401,7 +405,7 @@ func TestSpeakerBackchannelTransports(t *testing.T) {
 			bridge, rec := newTalkbackBridge(t)
 			t.Cleanup(bridge.rtpForwarder.Stop)
 			calls := make(chan int, 2)
-			bridge.speaker.setSender(func(value int) error {
+			bridge.session.Load().speaker.setSender(func(value int) error {
 				err := rec.send(value)
 				calls <- value
 				return err
@@ -448,7 +452,7 @@ func TestSpeakerBackchannelTransports(t *testing.T) {
 				t.Fatal("backchannel did not turn speaker on")
 			}
 			bridge.rtpForwarder.RemoveClient("a")
-			waitSpeaker(t, &bridge.speaker)
+			waitSpeaker(t, &bridge.session.Load().speaker)
 			expectCalls(t, rec, 1, 0)
 		})
 	}

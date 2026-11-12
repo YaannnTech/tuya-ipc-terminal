@@ -30,16 +30,15 @@ type RTPForwarder struct {
 	clients map[string]*RTPClient
 	mutex   sync.RWMutex
 
-	videoMutex     sync.Mutex
-	videoTimestamp videoTimestampScaler
-	audioMutex     sync.Mutex
-	audioStarted   bool
-	audioSource    uint32
-	audioSequence  uint16
-
-	// RTP session info
-	videoSSRC atomic.Uint32
-	audioSSRC atomic.Uint32
+	videoMutex      sync.Mutex
+	videoTimestamp  videoTimestampScaler
+	videoContinuity rtpContinuity
+	videoGate       hevcRenewalGate
+	audioMutex      sync.Mutex
+	audioStarted    bool
+	audioSource     uint32
+	audioSequence   uint16
+	audioContinuity rtpContinuity
 
 	// Packet count
 	firstVideoPacket atomic.Bool
@@ -96,7 +95,6 @@ func NewRTPForwarder() *RTPForwarder {
 		clients:        make(map[string]*RTPClient),
 		videoTimestamp: newVideoTimestampScaler(),
 	}
-	forwarder.audioSSRC.Store(1)
 	forwarder.firstVideoPacket.Store(true)
 	forwarder.firstAudioPacket.Store(true)
 	return forwarder
@@ -315,10 +313,13 @@ func (rf *RTPForwarder) forwardVideo(packet *rtp.Packet) (deadIDs []string, dead
 	rf.videoMutex.Lock()
 	defer rf.videoMutex.Unlock()
 	failed := make(map[string]bool)
-	for _, forwarded := range rf.videoTimestamp.push(packet, time.Now()) {
-		ids, errs := rf.sendVideo(forwarded, failed)
-		deadIDs = append(deadIDs, ids...)
-		deadErrs = append(deadErrs, errs...)
+	for _, gated := range rf.videoGate.push(packet) {
+		for _, forwarded := range rf.videoTimestamp.push(gated, time.Now()) {
+			forwarded = rf.videoContinuity.rewrite(forwarded, 0, 90000/15)
+			ids, errs := rf.sendVideo(forwarded, failed)
+			deadIDs = append(deadIDs, ids...)
+			deadErrs = append(deadErrs, errs...)
+		}
 	}
 	return
 }
@@ -400,6 +401,8 @@ func (rf *RTPForwarder) forwardAudio(packet *rtp.Packet) (deadIDs []string, dead
 	rf.audioStarted, rf.audioSource, rf.audioSequence = true, packet.SSRC, packet.SequenceNumber
 
 	// Serialize packet
+	duration := uint32(len(packet.Payload))
+	packet = rf.audioContinuity.rewrite(packet, duration, duration)
 	data, err := packet.Marshal()
 	if err != nil {
 		core.Logger.Error().Err(err).Msg("Error marshaling audio RTP packet")
@@ -445,10 +448,6 @@ func (rf *RTPForwarder) forwardAudio(packet *rtp.Packet) (deadIDs []string, dead
 }
 
 func (rf *RTPForwarder) Stop() {
-	// Reset SSRCs
-	rf.videoSSRC.Store(0)
-	rf.audioSSRC.Store(1)
-
 	// Reset first packet flags
 	rf.firstVideoPacket.Store(true)
 	rf.firstAudioPacket.Store(true)
@@ -460,9 +459,12 @@ func (rf *RTPForwarder) Stop() {
 	rf.clients = make(map[string]*RTPClient)
 	rf.videoMutex.Lock()
 	rf.videoTimestamp.reset()
+	rf.videoContinuity = rtpContinuity{}
+	rf.videoGate = hevcRenewalGate{}
 	rf.videoMutex.Unlock()
 	rf.audioMutex.Lock()
 	rf.audioStarted = false
+	rf.audioContinuity = rtpContinuity{}
 	rf.audioMutex.Unlock()
 	rf.mutex.Unlock()
 
@@ -471,6 +473,23 @@ func (rf *RTPForwarder) Stop() {
 	}
 
 	core.Logger.Trace().Msg("RTPForwarder stopped and all clients cleared")
+}
+
+// RenewSource prepares the forwarder for a replacement source. The caller must
+// stop forwarding the old source before calling it and start the new source
+// afterwards. HEVC enables a parameter-set and keyframe gate for video.
+func (rf *RTPForwarder) RenewSource(hevc bool) {
+	rf.mutex.Lock()
+	defer rf.mutex.Unlock()
+	rf.videoMutex.Lock()
+	rf.videoTimestamp.reset()
+	rf.videoContinuity.renew()
+	rf.videoGate = hevcRenewalGate{active: hevc}
+	rf.videoMutex.Unlock()
+	rf.audioMutex.Lock()
+	rf.audioStarted = false
+	rf.audioContinuity.renew()
+	rf.audioMutex.Unlock()
 }
 
 func (rf *RTPForwarder) GetClientCount() int {

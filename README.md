@@ -269,6 +269,11 @@ rtsp://localhost:[port]/[camera-name]/sd      # Sub-stream (lower quality)
 rtsp://localhost:[port]/[camera-name]/hd-lan  # Experimental LAN HEVC
 ```
 
+For HEVC `/hd`, the bridge renews an unexpectedly closed camera session
+(observed after about 10 minutes on one camera). A successful renewal causes
+a video gap while waiting for HEVC parameters and a keyframe, without
+disconnecting RTSP clients.
+
 `/hd-lan` is an opt-in workaround for cameras that start an H.264 SD
 stream locally and switch it to HEVC HD on request. Tuya cloud signaling is
 still required. The selected ICE peer must have a private or link-local
@@ -301,7 +306,8 @@ packets arriving after a gap is skipped are dropped. This allows time for
 NACK retransmissions over a relay but can add latency when packets are lost.
 The reorder buffer does not change timestamps; video timestamp correction
 still applies as described above. Late or duplicate audio packets are dropped
-by sequence number without changing audio timestamps.
+by sequence number; the ordering check does not change audio timestamps.
+Renewed sessions use a continuous RTP timeline for audio and video.
 
 ### 🏠 Home Automation Integration
 

@@ -28,7 +28,7 @@ func (wb *WebRTCBridge) upstreamResolution() string {
 	return wb.resolution
 }
 
-func (wb *WebRTCBridge) lanHDICETransport() *pion.ICETransport {
+func (wb *bridgeSession) lanHDICETransport() *pion.ICETransport {
 	// Pion uses the same DTLS/ICE transport for bundled RTP and SCTP.
 	return wb.peerConnection.SCTP().Transport().ICETransport()
 }
@@ -74,7 +74,7 @@ func switchLANHD(ctx context.Context, delay time.Duration, selectedPair func() (
 	return nil
 }
 
-func (wb *WebRTCBridge) requestLANHD() {
+func (wb *bridgeSession) requestLANHD() {
 	// The reporter's camera accepts the switch after its SD stream starts.
 	err := switchLANHD(wb.ctx, lanHDDelay, wb.lanHDICETransport().GetSelectedCandidatePair, wb.cameraClient.SendResolution)
 	if err != nil {

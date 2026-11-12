@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 	"tuya-ipc-terminal/pkg/core"
@@ -17,6 +18,7 @@ type MQTTClient struct {
 	uid            string
 	subscribeTopic string
 	cameras        map[string]*MQTTCameraClient // sessionId -> camera
+	camerasMutex   sync.RWMutex
 	closed         atomic.Bool
 	hasConnected   atomic.Bool
 	onState        func(string, error)
@@ -92,6 +94,8 @@ func (c *MQTTClient) Stop() {
 }
 
 func (c *MQTTClient) AddCameraClient(sessionId string, cameraClient *MQTTCameraClient) {
+	c.camerasMutex.Lock()
+	defer c.camerasMutex.Unlock()
 	if c.cameras == nil {
 		c.cameras = make(map[string]*MQTTCameraClient)
 	}
@@ -99,6 +103,8 @@ func (c *MQTTClient) AddCameraClient(sessionId string, cameraClient *MQTTCameraC
 }
 
 func (c *MQTTClient) RemoveCameraClient(sessionId string) {
+	c.camerasMutex.Lock()
+	defer c.camerasMutex.Unlock()
 	if c.cameras == nil {
 		return
 	}
@@ -146,7 +152,9 @@ func (c *MQTTClient) consume(client mqtt.Client, msg mqtt.Message) {
 	}
 
 	sessionId := rmqtt.Data.Header.SessionID
+	c.camerasMutex.RLock()
 	cameraClient, ok := c.cameras[sessionId]
+	c.camerasMutex.RUnlock()
 	if !ok {
 		core.Logger.Warn().Msgf("No camera client found for sessionId: %s", sessionId)
 		return
