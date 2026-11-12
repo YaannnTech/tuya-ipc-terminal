@@ -17,6 +17,8 @@ are releases of the original project,
 
 - Renew unexpectedly closed HEVC `/hd` camera sessions without disconnecting
   RTSP clients when renewal succeeds (#11).
+- Keep connected RTSP PLAY sessions open during idle periods longer than the
+  advertised session timeout (#11).
 - Bound the MQTT disconnect acknowledgement wait during stream shutdown (#11).
 - Reorder RTP-track video packets within a bounded wait and sequence window,
   and drop late or duplicate audio packets without rewriting timestamps (#32).

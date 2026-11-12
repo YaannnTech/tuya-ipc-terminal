@@ -50,6 +50,7 @@ type RTSPClient struct {
 	backAudioRTPChannel  byte
 	backAudioRTCPChannel byte
 	setupCount           int
+	playing              bool
 }
 
 type CameraStream struct {

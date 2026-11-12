@@ -1,6 +1,7 @@
 package rtsp
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"net"
@@ -13,6 +14,75 @@ import (
 
 	"github.com/pion/rtp"
 )
+
+type shortReadDeadlineConn struct {
+	net.Conn
+	idle chan struct{}
+}
+
+func (c *shortReadDeadlineConn) SetReadDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		select {
+		case c.idle <- struct{}{}:
+		default:
+		}
+	} else {
+		deadline = time.Now().Add(80 * time.Millisecond)
+	}
+	return c.Conn.SetReadDeadline(deadline)
+}
+
+func TestPlaySurvivesIdleReadTimeout(t *testing.T) {
+	serverConn, peer := net.Pipe()
+	defer peer.Close()
+	conn := &shortReadDeadlineConn{Conn: serverConn, idle: make(chan struct{}, 1)}
+	bridge := newTestBridge()
+	defer bridge.Stop()
+	stream := &CameraStream{camera: bridge.camera, resolution: "hd", webrtcBridge: bridge, clients: make(map[string]*RTSPClient)}
+	client := &RTSPClient{conn: conn, reader: bufio.NewReader(conn), session: "viewer", stream: stream}
+	server := &RTSPServer{clients: map[string]*RTSPClient{"viewer": client}}
+	go server.handleRTSPProtocol(client)
+	if err := peer.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(peer)
+	requestRTSP(t, peer, reader, "SETUP", "/camera/hd/audio",
+		"Transport: RTP/AVP/TCP;unicast;interleaved=2-3\r\n", "timeout=60")
+	requestRTSP(t, peer, reader, "PLAY", "/camera/hd", "Session: viewer\r\n", "200 OK")
+	select {
+	case <-conn.idle:
+	case <-time.After(time.Second):
+		t.Fatal("PLAY did not clear the idle read deadline")
+	}
+	time.Sleep(200 * time.Millisecond)
+	requestRTSP(t, peer, reader, "OPTIONS", "/camera/hd", "", "200 OK")
+	testRTSPReadDeadlineStillBoundsIncompleteRequests(t)
+}
+
+func testRTSPReadDeadlineStillBoundsIncompleteRequests(t *testing.T) {
+	serverConn, peer := net.Pipe()
+	defer peer.Close()
+	conn := &shortReadDeadlineConn{Conn: serverConn, idle: make(chan struct{}, 1)}
+	bridge := newTestBridge()
+	defer bridge.Stop()
+	stream := &CameraStream{camera: bridge.camera, resolution: "hd", webrtcBridge: bridge, clients: make(map[string]*RTSPClient)}
+	client := &RTSPClient{conn: conn, reader: bufio.NewReader(conn), session: "viewer", stream: stream}
+	server := &RTSPServer{clients: map[string]*RTSPClient{"viewer": client}}
+	go server.handleRTSPProtocol(client)
+	if err := peer.SetDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	reader := bufio.NewReader(peer)
+	requestRTSP(t, peer, reader, "PLAY", "/camera/hd", "Session: viewer\r\n", "200 OK")
+	if _, err := peer.Write([]byte("OPTIONS ")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.ReadByte(); err == nil {
+		t.Fatal("incomplete request did not close the connection")
+	} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		t.Fatal("server did not enforce the incomplete-request timeout")
+	}
+}
 
 func TestListenTCPUsesConfiguredAddress(t *testing.T) {
 	listener, err := listenTCP("127.0.0.1", 0)

@@ -1,14 +1,22 @@
 package rtsp
 
 import (
+	"bufio"
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"net"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"tuya-ipc-terminal/pkg/storage"
+
+	"github.com/pion/rtp"
 )
 
 func renewalBridge(t *testing.T) (*WebRTCBridge, *bridgeSession) {
@@ -267,4 +275,147 @@ func TestHEVCCloseWithoutClientsReportsFailure(t *testing.T) {
 	if attempts.Load() != 0 {
 		t.Fatal("renewal started without clients")
 	}
+}
+
+func TestRTSPPlayContinuesDuringSlowRenewal(t *testing.T) {
+	serverConn, peer := net.Pipe()
+	defer peer.Close()
+	bridge := newTestBridge()
+	server := &RTSPServer{clients: make(map[string]*RTSPClient)}
+	stream := &CameraStream{
+		camera: bridge.camera, resolution: "hd", webrtcBridge: bridge,
+		clients: make(map[string]*RTSPClient),
+	}
+	client := &RTSPClient{
+		conn: serverConn, reader: bufio.NewReader(serverConn),
+		session: "viewer", stream: stream, audioRTPChannel: 2,
+	}
+	server.addClient(client)
+	stream.clients[client.session] = client
+	old := bridge.session.Load()
+	old.isHEVC = true
+	if err := old.markReady(); err != nil {
+		t.Fatal(err)
+	}
+	bridge.connected = true
+	bridge.renewalDelay = func(context.Context, time.Duration) error { return nil }
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() {
+		releaseOnce.Do(func() { close(release) })
+		peer.Close()
+		bridge.Stop()
+	})
+	bridge.setupSession = func(s *bridgeSession) error {
+		close(started)
+		select {
+		case <-release:
+			return nil
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		}
+	}
+	go server.handleRTSPProtocol(client)
+	reader := bufio.NewReader(peer)
+	if err := peer.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	requestRTSP(t, peer, reader, "SETUP", "/camera/hd/audio",
+		"Transport: RTP/AVP/TCP;unicast;interleaved=2-3\r\n", "timeout=60")
+	requestRTSP(t, peer, reader, "PLAY", "/camera/hd", "Session: viewer\r\n", "200 OK")
+
+	old.handleError("data_channel_close", errors.New("closed"))
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("renewal did not enter setup")
+	}
+
+	connected := make(chan bool, 1)
+	go func() { connected <- bridge.IsConnected() }()
+	select {
+	case ok := <-connected:
+		if !ok {
+			t.Fatal("bridge disconnected during renewal")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("bridge state lock blocked during session setup")
+	}
+	requestRTSP(t, peer, reader, "OPTIONS", "/camera/hd", "", "200 OK")
+
+	sent := make(chan struct{})
+	go func() {
+		bridge.rtpForwarder.ForwardAudioPacket(&rtp.Packet{
+			Header:  rtp.Header{Version: 2, SequenceNumber: 1, SSRC: 1},
+			Payload: []byte{1, 2, 3},
+		})
+		close(sent)
+	}()
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		t.Fatalf("read interleaved header: %v", err)
+	}
+	if header[0] != '$' || header[1] != 2 {
+		t.Fatalf("unexpected interleaved header: %v", header)
+	}
+	data := make([]byte, binary.BigEndian.Uint16(header[2:]))
+	if _, err := io.ReadFull(reader, data); err != nil {
+		t.Fatalf("read RTP packet: %v", err)
+	}
+	var packet rtp.Packet
+	if err := packet.Unmarshal(data); err != nil || len(packet.Payload) != 3 {
+		t.Fatalf("invalid forwarded audio: %+v, %v", packet, err)
+	}
+	<-sent
+	releaseOnce.Do(func() { close(release) })
+	awaitSessionReady(t, bridge, old)
+	requestRTSP(t, peer, reader, "OPTIONS", "/camera/hd", "", "200 OK")
+}
+
+func requestRTSP(t *testing.T, conn net.Conn, reader *bufio.Reader, method, path, headers, want string) {
+	t.Helper()
+	if _, err := fmt.Fprintf(conn, "%s rtsp://localhost%s RTSP/1.0\r\nCSeq: 1\r\n%s\r\n", method, path, headers); err != nil {
+		t.Fatalf("%s request: %v", method, err)
+	}
+	var response strings.Builder
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("%s response: %v", method, err)
+		}
+		response.WriteString(line)
+		if line == "\r\n" {
+			break
+		}
+	}
+	if !strings.Contains(response.String(), want) {
+		t.Fatalf("%s response %q does not contain %q", method, response.String(), want)
+	}
+}
+
+func TestRenewSourceDoesNotHoldClientLockWhileWaitingForMedia(t *testing.T) {
+	f := NewRTPForwarder()
+	f.videoMutex.Lock()
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		close(started)
+		f.RenewSource(true)
+		close(done)
+	}()
+	<-started
+	// Ensure the renewal has had an opportunity to wait for the media lock.
+	time.Sleep(50 * time.Millisecond)
+	counted := make(chan struct{})
+	go func() { f.GetClientCount(); close(counted) }()
+	select {
+	case <-counted:
+	case <-time.After(time.Second):
+		f.videoMutex.Unlock()
+		<-done
+		t.Fatal("source renewal blocked client operations while waiting for media")
+	}
+	f.videoMutex.Unlock()
+	<-done
 }

@@ -42,6 +42,7 @@ type WebRTCBridge struct {
 	closeOnce       sync.Once
 	shutdownLogOnce sync.Once
 	mutex           sync.RWMutex
+	renewalMutex    sync.Mutex
 	createdAt       time.Time
 	startedAt       atomic.Pointer[time.Time]
 	ctx             context.Context
@@ -310,6 +311,8 @@ func (wb *WebRTCBridge) Stop() {
 	// Cancel before taking the lock: a Start that is still waiting holds it.
 	wb.cancel()
 
+	wb.renewalMutex.Lock()
+	defer wb.renewalMutex.Unlock()
 	wb.mutex.Lock()
 	defer wb.mutex.Unlock()
 
@@ -994,39 +997,41 @@ func (wb *WebRTCBridge) reportSessionFailure(s *bridgeSession, source string, er
 }
 
 func (wb *WebRTCBridge) renew(old *bridgeSession, source string, cause error) {
-	wb.mutex.Lock()
-	if wb.ctx.Err() != nil || wb.session.Load() != old || !wb.connected {
-		wb.mutex.Unlock()
-		return
+	wb.renewalMutex.Lock()
+	failed, err := wb.renewLocked(old, cause)
+	wb.renewalMutex.Unlock()
+	if failed != nil {
+		wb.reportSessionFailure(failed, source, err)
+	}
+}
+
+func (wb *WebRTCBridge) renewLocked(old *bridgeSession, cause error) (*bridgeSession, error) {
+	wb.mutex.RLock()
+	connected := wb.connected
+	wb.mutex.RUnlock()
+	if wb.ctx.Err() != nil || wb.session.Load() != old || !connected {
+		return nil, nil
 	}
 	if wb.rtpForwarder.GetClientCount() == 0 {
-		wb.mutex.Unlock()
-		wb.reportSessionFailure(old, source, cause)
-		return
+		return old, cause
 	}
 	old.close()
 	for attempt := 1; attempt <= 3; attempt++ {
 		if err := wb.renewalDelay(wb.ctx, time.Second<<uint(attempt-1)); err != nil {
-			wb.mutex.Unlock()
-			return
+			return nil, nil
 		}
 		if wb.ctx.Err() != nil {
-			wb.mutex.Unlock()
-			return
+			return nil, nil
 		}
 		if wb.rtpForwarder.GetClientCount() == 0 {
-			last := wb.session.Load()
-			wb.mutex.Unlock()
-			wb.reportSessionFailure(last, source, cause)
-			return
+			return wb.session.Load(), cause
 		}
 		wb.logEvent("renewal attempt=%d result=started error=%q", attempt, "")
 		s := wb.newSession()
 		s.renewing = true
 		if wb.ctx.Err() != nil {
 			s.close()
-			wb.mutex.Unlock()
-			return
+			return nil, nil
 		}
 		wb.session.Store(s)
 		wb.rtpForwarder.RenewSource(true)
@@ -1039,18 +1044,14 @@ func (wb *WebRTCBridge) renew(old *bridgeSession, source string, cause error) {
 		}
 		if err == nil && wb.ctx.Err() == nil {
 			wb.logEvent("renewal attempt=%d result=ok error=%q", attempt, "")
-			wb.mutex.Unlock()
-			return
+			return nil, nil
 		}
 		s.close()
 		if wb.ctx.Err() != nil {
-			wb.mutex.Unlock()
-			return
+			return nil, nil
 		}
 		wb.logEvent("renewal attempt=%d result=failed error=%q", attempt, errorText(err))
 		cause = err
 	}
-	last := wb.session.Load()
-	wb.mutex.Unlock()
-	wb.reportSessionFailure(last, source, cause)
+	return wb.session.Load(), cause
 }

@@ -479,8 +479,6 @@ func (rf *RTPForwarder) Stop() {
 // stop forwarding the old source before calling it and start the new source
 // afterwards. HEVC enables a parameter-set and keyframe gate for video.
 func (rf *RTPForwarder) RenewSource(hevc bool) {
-	rf.mutex.Lock()
-	defer rf.mutex.Unlock()
 	rf.videoMutex.Lock()
 	rf.videoTimestamp.reset()
 	rf.videoContinuity.renew()
