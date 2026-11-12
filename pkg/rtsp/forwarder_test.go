@@ -134,7 +134,9 @@ func TestForwarderDropsUDPClientWithClosedPort(t *testing.T) {
 
 	// The refusal is reported on the send after the ICMP message arrives.
 	for i := 0; i < 50 && forwarder.GetClientCount() > 0; i++ {
-		forwarder.ForwardVideoPacket(testPacket())
+		packet := testPacket()
+		packet.SequenceNumber = uint16(i)
+		forwarder.ForwardVideoPacket(packet)
 		time.Sleep(10 * time.Millisecond)
 	}
 	waitForDeadClient(t, dead, "gone")

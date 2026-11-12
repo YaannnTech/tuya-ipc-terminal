@@ -277,7 +277,7 @@ The server waits for HEVC parameters and a keyframe, and repacketizes the
 camera's H.264-style framing for HEVC RTSP clients. This mode was reported
 working on a `ksdjml` peephole camera by [@sintech](https://github.com/sintech);
 other cameras may not support it, and intermittent artifacts are still under
-investigation. The default, `/hd`, and `/sd` modes are unchanged.
+investigation.
 
 ### ⏱️ Video Timestamp Correction
 
@@ -292,6 +292,16 @@ disable detection and correction. Other positive integer divisors up to
 server process. If the detection buffer reaches its limit, timestamps are left
 unchanged.
 
+### RTP Packet Ordering
+
+For `/sd` and `/hd` video received over RTP tracks, the bridge waits for
+missing packets before forwarding later packets in sequence order. It skips
+gaps after 1 s or a 1024-packet sequence window, whichever comes first;
+packets arriving after a gap is skipped are dropped. This allows time for
+NACK retransmissions over a relay but can add latency when packets are lost.
+The reorder buffer does not change timestamps; video timestamp correction
+still applies as described above. Late or duplicate audio packets are dropped
+by sequence number without changing audio timestamps.
 
 ### 🏠 Home Automation Integration
 

@@ -32,6 +32,10 @@ type RTPForwarder struct {
 
 	videoMutex     sync.Mutex
 	videoTimestamp videoTimestampScaler
+	audioMutex     sync.Mutex
+	audioStarted   bool
+	audioSource    uint32
+	audioSequence  uint16
 
 	// RTP session info
 	videoSSRC atomic.Uint32
@@ -387,6 +391,14 @@ func (rf *RTPForwarder) forwardAudio(packet *rtp.Packet) (deadIDs []string, dead
 		return
 	}
 
+	rf.audioMutex.Lock()
+	defer rf.audioMutex.Unlock()
+	if rf.audioStarted && packet.SSRC == rf.audioSource &&
+		int16(packet.SequenceNumber-rf.audioSequence) <= 0 {
+		return
+	}
+	rf.audioStarted, rf.audioSource, rf.audioSequence = true, packet.SSRC, packet.SequenceNumber
+
 	// Serialize packet
 	data, err := packet.Marshal()
 	if err != nil {
@@ -449,6 +461,9 @@ func (rf *RTPForwarder) Stop() {
 	rf.videoMutex.Lock()
 	rf.videoTimestamp.reset()
 	rf.videoMutex.Unlock()
+	rf.audioMutex.Lock()
+	rf.audioStarted = false
+	rf.audioMutex.Unlock()
 	rf.mutex.Unlock()
 
 	for _, client := range clients {
