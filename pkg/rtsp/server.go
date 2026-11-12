@@ -378,7 +378,7 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 		// failed stays dead. Stop it and close its sessions: clients reconnect
 		// and get a fresh stream instead of waiting for packets forever.
 		sessions := stream.clientSessionsLocked()
-		stream.stopStreamInternal()
+		stream.stopStreamInternal("bridge_error")
 		stream.mutex.Unlock()
 		stream.closeSessions(sessions)
 	}
@@ -601,7 +601,7 @@ func (cs *CameraStream) startStreamWith(startBridge func() error) {
 		if cs.active || cs.connecting {
 			sessions = cs.clientSessionsLocked()
 		}
-		cs.stopStreamInternal()
+		cs.stopStreamInternal("rtsp_start_failure")
 		cs.mutex.Unlock()
 		cs.closeSessions(sessions)
 		return
@@ -647,10 +647,10 @@ func (cs *CameraStream) closeSessions(sessions []string) {
 func (cs *CameraStream) stopStream() {
 	cs.mutex.Lock()
 	defer cs.mutex.Unlock()
-	cs.stopStreamInternal()
+	cs.stopStreamInternal("rtsp_stop")
 }
 
-func (cs *CameraStream) stopStreamInternal() {
+func (cs *CameraStream) stopStreamInternal(source string) {
 	// Check if we should actually stop
 	if !cs.active && !cs.connecting {
 		return
@@ -674,6 +674,7 @@ func (cs *CameraStream) stopStreamInternal() {
 
 	// Stop WebRTC bridge
 	if cs.webrtcBridge != nil {
+		cs.webrtcBridge.logShutdown(source, nil)
 		cs.webrtcBridge.Stop()
 	}
 
@@ -705,7 +706,7 @@ func (cs *CameraStream) scheduleShutdown() {
 		// Double-check no clients connected during the delay and stream is still active
 		if len(cs.clients) == 0 && cs.active {
 			core.Logger.Info().Msgf("Executing delayed shutdown for camera %s", cs.camera.DeviceName)
-			cs.stopStreamInternal()
+			cs.stopStreamInternal("rtsp_no_clients")
 		}
 
 		cs.shutdownTimer = nil

@@ -12,8 +12,28 @@ import (
 	pion "github.com/pion/webrtc/v4"
 
 	"tuya-ipc-terminal/pkg/storage"
+	"tuya-ipc-terminal/pkg/tuya"
 	"tuya-ipc-terminal/pkg/utils"
 )
+
+func TestICEServerDiagnosticRedactsCredentials(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"turn:alice:secret@turn.example:3478?password=query-secret", `url="turn:turn.example:3478" ttl_raw=600`},
+		{"turns://alice:secret@[2001:db8::1]:5349?transport=tcp", `url="turns:[2001:db8::1]:5349" ttl_raw=600`},
+		{"stun:stun.example:3478", `url="stun:stun.example:3478" ttl_raw=600`},
+		{"turn:alice:secret@bad host:3478", `url="<invalid>" ttl_raw=600`},
+		{"https://alice:secret@example.com", `url="<invalid>" ttl_raw=600`},
+	}
+	for _, tt := range tests {
+		server := tuya.ICEServer{Urls: tt.url, Username: "alice", Credential: "secret", Ttl: 600}
+		if got := iceServerDiagnostic(server); got != tt.want {
+			t.Errorf("diagnostic = %q, want %q", got, tt.want)
+		}
+	}
+}
 
 func TestRemoteCandidatesWaitForTheAnswer(t *testing.T) {
 	var added []string
@@ -189,14 +209,14 @@ func TestErrorsAfterOwnShutdownAreNotReported(t *testing.T) {
 	reported := 0
 	bridge.OnError = func(error) { reported++ }
 
-	bridge.handleError(errors.New("data channel failed"))
+	bridge.handleError("test", errors.New("data channel failed"))
 	if reported != 1 {
 		t.Fatalf("OnError called %d time(s) for an error before shutdown, want 1", reported)
 	}
 
 	bridge.Stop()
 	// e.g. the camera confirming the disconnect that Stop sent
-	bridge.handleError(errors.New("camera client disconnected"))
+	bridge.handleError("test", errors.New("camera client disconnected"))
 	if reported != 1 {
 		t.Fatalf("OnError called for an error after the bridge shut itself down")
 	}

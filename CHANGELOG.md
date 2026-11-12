@@ -8,6 +8,11 @@ are releases of the original project,
 
 ## [Unreleased]
 
+### Added
+
+- Per-stream ICE, WebRTC and MQTT lifecycle diagnostics for investigating
+  TURN refresh failures (#11).
+
 ## [0.2.0] - 2026-11-11
 
 ### Added
