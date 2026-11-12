@@ -79,7 +79,7 @@ func (wb *WebRTCBridge) requestLANHD() {
 	err := switchLANHD(wb.ctx, lanHDDelay, wb.lanHDICETransport().GetSelectedCandidatePair, wb.cameraClient.SendResolution)
 	if err != nil {
 		if wb.ctx.Err() == nil {
-			wb.handleError(err)
+			wb.handleError("lan_hd", err)
 		}
 		return
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -48,12 +49,15 @@ type WebRTCBridge struct {
 	rtpForwarder                  *RTPForwarder
 
 	// State
-	connected bool
-	stopped   bool
-	closing   atomic.Bool // set once the bridge shuts itself down
-	closeOnce sync.Once
-	waiter    utils.Waiter
-	mutex     sync.RWMutex
+	connected       bool
+	stopped         bool
+	closing         atomic.Bool // set once the bridge shuts itself down
+	closeOnce       sync.Once
+	shutdownLogOnce sync.Once
+	waiter          utils.Waiter
+	mutex           sync.RWMutex
+	createdAt       time.Time
+	startedAt       atomic.Pointer[time.Time]
 
 	// The camera's ICE candidates can arrive over MQTT before its answer.
 	remoteCandidates *remoteCandidateQueue
@@ -88,6 +92,7 @@ func NewWebRTCBridge(camera *storage.CameraInfo, streamResolution string, user *
 		waiter:         utils.Waiter{},
 		ctx:            ctx,
 		cancel:         cancel,
+		createdAt:      time.Now(),
 	}
 
 	wb.rtpForwarder.OnBackchannelAudio = wb.ForwardBackchannelAudioPacket
@@ -138,11 +143,14 @@ func (wb *WebRTCBridge) Start() (err error) {
 	if wb.stopped {
 		return errors.New("bridge stopped")
 	}
+	started := time.Now()
+	wb.startedAt.Store(&started)
 
 	// A failed start must not leave the MQTT client or peer connection behind:
 	// they would keep pulling the stream from Tuya with nobody to receive it.
 	defer func() {
 		if err != nil {
+			wb.logShutdown("start", err)
 			wb.closeResources()
 		}
 	}()
@@ -172,6 +180,9 @@ func (wb *WebRTCBridge) Start() (err error) {
 		appInfo.Result.ClientId,
 		wb.user.SessionData.LoginResult.Domain.MobileMqttsUrl,
 		&mqttConfig.Result,
+		func(state string, err error) {
+			wb.logEvent("mqtt state=%s error=%q", state, errorText(err))
+		},
 	)
 
 	if err != nil {
@@ -186,6 +197,13 @@ func (wb *WebRTCBridge) Start() (err error) {
 	webRTCConfig, err := tuya.GetWebRTCConfig(wb.ctx, httpClient, wb.user.SessionData.ServerHost, wb.camera.DeviceID)
 	if err != nil {
 		return fmt.Errorf("failed to get WebRTC config: %v", err)
+	}
+	fetched := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, server := range webRTCConfig.Result.P2PConfig.Ices {
+		wb.logEvent("ice_server %s fetched_at=%s", iceServerDiagnostic(server), fetched)
+	}
+	if len(webRTCConfig.Result.P2PConfig.Ices) == 0 {
+		wb.logEvent("ice_server none fetched_at=%s", fetched)
 	}
 
 	// Parse skill information
@@ -232,6 +250,7 @@ func (wb *WebRTCBridge) Start() (err error) {
 }
 
 func (wb *WebRTCBridge) Stop() {
+	wb.logShutdown("Stop", nil)
 	// Cancel before taking the lock: a Start that is still waiting holds it.
 	wb.cancel()
 
@@ -328,14 +347,24 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %v", err)
 	}
-	if wb.resolution == lanHDResolution {
-		wb.lanHDICETransport().OnSelectedCandidatePairChange(func(pair *pion.ICECandidatePair) {
+	wb.lanHDICETransport().OnSelectedCandidatePairChange(func(pair *pion.ICECandidatePair) {
+		if pair != nil && pair.Local != nil && pair.Remote != nil {
+			wb.logEvent("ice_pair local_type=%s local_protocol=%s remote_type=%s remote_protocol=%s remote_address=%s",
+				pair.Local.Typ, pair.Local.Protocol, pair.Remote.Typ, pair.Remote.Protocol,
+				net.JoinHostPort(pair.Remote.Address, fmt.Sprint(pair.Remote.Port)))
+		} else {
+			wb.logEvent("ice_pair unavailable")
+		}
+		if wb.resolution == lanHDResolution {
 			if err := requireLANHDPeer(pair); err != nil {
 				// Closing the peer connection inside its ICE callback can deadlock.
-				go wb.handleError(err)
+				go wb.handleError("ice_pair", err)
 			}
-		})
-	}
+		}
+	})
+	wb.peerConnection.OnICEConnectionStateChange(func(state pion.ICEConnectionState) {
+		wb.logEvent("ice_state=%s", state)
+	})
 
 	// On HEVC, use DataChannel to receive video/audio
 	if wb.isHEVC {
@@ -350,7 +379,7 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 		wb.dataChannel.OnMessage(func(msg pion.DataChannelMessage) {
 			if msg.IsString {
 				if connected, err := wb.probe(msg); err != nil {
-					wb.handleError(err)
+					wb.handleError("data_channel_message", err)
 				} else if connected {
 					wb.waiter.Done(nil)
 				}
@@ -381,29 +410,32 @@ func (wb *WebRTCBridge) setupPeerConnection(webRTCConfig *tuya.WebRTCConfig) err
 		})
 
 		wb.dataChannel.OnError(func(err error) {
-			wb.handleError(err)
+			wb.handleError("data_channel_error", err)
 		})
 
 		wb.dataChannel.OnClose(func() {
-			wb.handleError(errors.New("datachannel: closed"))
+			wb.logEvent("data_channel state=closed")
+			wb.handleError("data_channel_close", errors.New("datachannel: closed"))
 		})
 
 		wb.dataChannel.OnOpen(func() {
+			wb.logEvent("data_channel state=open")
 			codecRequest, _ := json.Marshal(tuya.DataChannelMessage{
 				Type: "codec",
 				Msg:  "",
 			})
 
 			if err := wb.sendMessageToDataChannel(codecRequest); err != nil {
-				wb.handleError(fmt.Errorf("failed to send codec request: %w", err))
+				wb.handleError("data_channel_open", fmt.Errorf("failed to send codec request: %w", err))
 			}
 		})
 	}
 
 	// Setup connection state handler
 	wb.peerConnection.OnConnectionStateChange(func(state pion.PeerConnectionState) {
+		wb.logEvent("peer_state=%s", state)
 		if state == pion.PeerConnectionStateFailed || state == pion.PeerConnectionStateClosed {
-			wb.handleError(errors.New("WebRTC connection failed/closed"))
+			wb.handleError("peer_"+state.String(), errors.New("WebRTC connection failed/closed"))
 		}
 
 		if state == pion.PeerConnectionStateConnected {
@@ -482,7 +514,6 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	// Setup handlers
 	wb.cameraClient.HandleAnswer = func(answer tuya.AnswerFrame) {
 		core.Logger.Trace().Msgf("Received WebRTC answer")
-		core.Logger.Trace().Msgf("Answer SDP: %s", answer.Sdp)
 
 		err := wb.remoteCandidates.SetReady(func() error {
 			desc := pion.SessionDescription{
@@ -497,7 +528,7 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 			return webrtc.SetAnswer(wb.peerConnection, answer.Sdp)
 		})
 		if err != nil {
-			wb.handleError(err)
+			wb.handleError("mqtt_answer", err)
 		}
 	}
 
@@ -521,13 +552,13 @@ func (wb *WebRTCBridge) setupMQTTCameraClient(webRTCConfig *tuya.WebRTCConfig) {
 	}
 
 	wb.cameraClient.HandleError = func(err error) {
-		wb.handleError(err)
+		wb.handleError("mqtt_camera_error", err)
 	}
 
 	wb.cameraClient.HandleDisconnect = func() {
 		// Stop resets the state; setting connected here (without the lock)
 		// made Stop skip the cleanup and leak the connection.
-		wb.handleError(errors.New("camera client disconnected"))
+		wb.handleError("mqtt_camera_disconnect", errors.New("camera client disconnected"))
 	}
 }
 
@@ -737,12 +768,13 @@ func (wb *WebRTCBridge) sendMessageToDataChannel(message []byte) error {
 	return nil
 }
 
-func (wb *WebRTCBridge) handleError(err error) {
+func (wb *WebRTCBridge) handleError(source string, err error) {
 	// Errors after our own shutdown started are expected (e.g. the camera
 	// confirming the disconnect we sent) and must not be reported.
 	if wb.closing.Load() {
 		return
 	}
+	wb.logShutdown(source, err)
 	if wb.resolution == lanHDResolution {
 		wb.waiter.Done(err)
 		wb.lanHDReady.Done(err)

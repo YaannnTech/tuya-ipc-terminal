@@ -364,7 +364,7 @@ func TestLANHDRejectsBrokenFragments(t *testing.T) {
 func TestLANHDStartupErrorUnblocksWaiters(t *testing.T) {
 	bridge := NewWebRTCBridge(&storage.CameraInfo{}, lanHDResolution, nil, nil)
 	want := errors.New("test error")
-	bridge.handleError(want)
+	bridge.handleError("test", want)
 	if err := bridge.waitFor(&bridge.waiter, "connection"); !errors.Is(err, want) {
 		t.Fatalf("connection error = %v", err)
 	}

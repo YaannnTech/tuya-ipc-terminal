@@ -18,6 +18,8 @@ type MQTTClient struct {
 	subscribeTopic string
 	cameras        map[string]*MQTTCameraClient // sessionId -> camera
 	closed         atomic.Bool
+	hasConnected   atomic.Bool
+	onState        func(string, error)
 	Connected      utils.Waiter
 }
 
@@ -45,11 +47,15 @@ type MqttMessage struct {
 	Data     MqttFrame `json:"data"`
 }
 
-func NewMqttClient(clientId, mobileMqttsUrl string, mqttConfig *MQTConfig) (*MQTTClient, error) {
+// NewMqttClient connects to the MQTT broker and reports connection changes.
+func NewMqttClient(
+	clientId, mobileMqttsUrl string, mqttConfig *MQTConfig, onState func(string, error),
+) (*MQTTClient, error) {
 	client := &MQTTClient{
 		uid:            mqttConfig.Msid,
 		subscribeTopic: fmt.Sprintf("/av/u/%s", mqttConfig.Msid),
 		Connected:      utils.Waiter{},
+		onState:        onState,
 	}
 
 	wssUrl := fmt.Sprintf("wss://%s/mqtt", mobileMqttsUrl)
@@ -100,6 +106,13 @@ func (c *MQTTClient) RemoveCameraClient(sessionId string) {
 }
 
 func (c *MQTTClient) onConnect(client mqtt.Client) {
+	if c.onState != nil {
+		state := "connected"
+		if c.hasConnected.Swap(true) {
+			state = "reconnected"
+		}
+		c.onState(state, nil)
+	}
 	core.Logger.Trace().Msgf("Connected to mqtt broker")
 	core.Logger.Trace().Msgf("Subscribing to topic: %s", c.subscribeTopic)
 
@@ -113,6 +126,9 @@ func (c *MQTTClient) onConnect(client mqtt.Client) {
 }
 
 func (c *MQTTClient) onDisconnect(client mqtt.Client, err error) {
+	if c.onState != nil {
+		c.onState("connection_lost", err)
+	}
 	if err != nil {
 		c.Connected.Done(err)
 	} else {
