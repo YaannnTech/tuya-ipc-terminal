@@ -238,6 +238,24 @@ func TestRenewalAudioDurationFallback(t *testing.T) {
 	}
 }
 
+func TestRenewalAudioUsesObservedTimestampStep(t *testing.T) {
+	f, peer := newRenewalForwarder(t)
+	for _, packet := range []*rtp.Packet{
+		renewalPacket(1, 100, 1, true, make([]byte, 640)...),
+		renewalPacket(2, 420, 1, true, make([]byte, 640)...),
+	} {
+		f.ForwardAudioPacket(packet)
+		readRenewalPacket(t, peer)
+	}
+
+	f.RenewSource(false)
+	f.ForwardAudioPacket(renewalPacket(50, 500, 2, true, make([]byte, 640)...))
+	got := readRenewalPacket(t, peer)
+	if got.Timestamp != 740 || got.SequenceNumber != 3 || got.SSRC != 1 {
+		t.Fatalf("new audio header: %+v", got.Header)
+	}
+}
+
 func TestRenewalHEVCDropsIncompleteAccessUnit(t *testing.T) {
 	f, peer := newRenewalForwarder(t)
 	f.RenewSource(true)

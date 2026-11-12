@@ -25,7 +25,7 @@ func (c *rtpContinuity) rewrite(packet *rtp.Packet, duration, fallback uint32) *
 	}
 	if c.pending {
 		step := c.step
-		if c.duration != 0 {
+		if step == 0 && c.duration != 0 {
 			step = c.duration
 		}
 		if step == 0 {
