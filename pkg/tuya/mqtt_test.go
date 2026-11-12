@@ -14,6 +14,14 @@ type speakerTestToken struct {
 	timeout time.Duration
 }
 
+func (t *speakerTestToken) Wait() bool {
+	return true
+}
+
+func (t *speakerTestToken) Error() error {
+	return nil
+}
+
 func (t *speakerTestToken) WaitTimeout(timeout time.Duration) bool {
 	t.timeout = timeout
 	return false
@@ -41,6 +49,17 @@ func TestSpeakerPublishTimesOut(t *testing.T) {
 	err := camera.SendSpeaker(1)
 	if err == nil || !strings.Contains(err.Error(), "timed out") || token.timeout <= 0 {
 		t.Fatalf("SendSpeaker error = %v, timeout = %s", err, token.timeout)
+	}
+}
+
+func TestDisconnectPublishTimesOut(t *testing.T) {
+	token := &speakerTestToken{}
+	client := &MQTTClient{mqtt: &speakerTestClient{token: token}}
+	camera := &MQTTCameraClient{mqttClient: client}
+
+	err := camera.SendDisconnect()
+	if err == nil || !strings.Contains(err.Error(), "timed out") || token.timeout <= 0 {
+		t.Fatalf("SendDisconnect error = %v, timeout = %s", err, token.timeout)
 	}
 }
 

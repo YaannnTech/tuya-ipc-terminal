@@ -279,7 +279,9 @@ func (wb *WebRTCBridge) closeResources() {
 		// Before SendDisconnect and the MQTT shutdown, which end the session.
 		wb.speaker.stop()
 		if wb.cameraClient != nil {
-			wb.cameraClient.SendDisconnect()
+			if err := wb.cameraClient.SendDisconnect(); err != nil {
+				core.Logger.Warn().Err(err).Msg("Failed to send camera disconnect")
+			}
 		}
 		if wb.peerConnection != nil {
 			wb.peerConnection.Close()

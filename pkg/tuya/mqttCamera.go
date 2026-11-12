@@ -126,9 +126,9 @@ func (c *MQTTCameraClient) SendSpeaker(speaker int) error {
 }
 
 func (c *MQTTCameraClient) SendDisconnect() error {
-	return c.sendMqttMessage("disconnect", 302, "", DisconnectFrame{
+	return c.sendMqttMessageWithTimeout("disconnect", 302, "", DisconnectFrame{
 		Mode: "webrtc",
-	})
+	}, time.Second)
 }
 
 func (c *MQTTCameraClient) onMqttAnswer(msg *MqttMessage) {

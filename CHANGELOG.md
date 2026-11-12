@@ -15,6 +15,7 @@ are releases of the original project,
 
 ### Fixed
 
+- Bound the MQTT disconnect acknowledgement wait during stream shutdown (#11).
 - Reorder RTP-track video packets within a bounded wait and sequence window,
   and drop late or duplicate audio packets without rewriting timestamps (#32).
 
