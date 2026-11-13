@@ -13,6 +13,11 @@ are releases of the original project,
 - Per-stream ICE, WebRTC and MQTT lifecycle diagnostics for investigating
   TURN refresh failures (#11).
 
+### Fixed
+
+- Reorder RTP-track video packets within a bounded wait and sequence window,
+  and drop late or duplicate audio packets without rewriting timestamps (#32).
+
 ## [0.2.0] - 2026-11-11
 
 ### Added

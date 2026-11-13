@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pion/interceptor"
 	pion "github.com/pion/webrtc/v4"
 	"golang.org/x/net/publicsuffix"
 
@@ -610,13 +611,62 @@ func (wb *WebRTCBridge) createAndSendOffer() error {
 	return nil
 }
 
+// Allow time for NACK retransmission through a relay (late frames up to
+// about 0.8 s were measured on a real camera) while bounding latency and
+// the number of packets retained during a gap.
+var videoReorderWait = time.Second
+var videoReorderWindow uint16 = 1024
+
+type videoRTPTrack interface {
+	ReadRTP() (*rtp.Packet, interceptor.Attributes, error)
+	SetReadDeadline(time.Time) error
+}
+
+func forwardVideoRTPTrack(ctx context.Context, track videoRTPTrack, forward func(*rtp.Packet)) {
+	var reorder rtpReorder
+	var deadline time.Time
+	for ctx.Err() == nil {
+		nextDeadline := reorder.deadline(videoReorderWait)
+		if !nextDeadline.Equal(deadline) {
+			if err := track.SetReadDeadline(nextDeadline); err != nil {
+				core.Logger.Warn().Err(err).Msg("Could not set video RTP read deadline")
+				return
+			}
+			deadline = nextDeadline
+		}
+		packet, _, err := track.ReadRTP()
+		now := time.Now()
+		for _, output := range reorder.drain(now, videoReorderWait, videoReorderWindow, "RTP video") {
+			forward(output)
+		}
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Timeout() && !deadline.IsZero() {
+				continue
+			}
+			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "closed") ||
+				strings.Contains(err.Error(), "EOF") ||
+				strings.Contains(err.Error(), "use of closed network connection") {
+				return
+			}
+			core.Logger.Warn().Err(err).Msg("Unexpected error reading video RTP packet")
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		for _, output := range reorder.push(packet, now, videoReorderWait, videoReorderWindow, "RTP video") {
+			forward(output)
+		}
+	}
+}
+
 func (wb *WebRTCBridge) handleVideoTrack(track *pion.TrackRemote) {
 	core.Logger.Trace().Msgf("Starting video track handler")
-	var lanVideo *lanHDVideo
-	if wb.resolution == lanHDResolution {
-		lanVideo = newLANHDVideo()
-		wb.lanHDRequest.Do(func() { go wb.requestLANHD() })
+	if wb.resolution != lanHDResolution {
+		forwardVideoRTPTrack(wb.ctx, track, wb.rtpForwarder.ForwardVideoPacket)
+		return
 	}
+	lanVideo := newLANHDVideo()
+	wb.lanHDRequest.Do(func() { go wb.requestLANHD() })
 
 	for {
 		select {
@@ -639,9 +689,7 @@ func (wb *WebRTCBridge) handleVideoTrack(track *pion.TrackRemote) {
 				continue
 			}
 
-			if lanVideo == nil {
-				wb.rtpForwarder.ForwardVideoPacket(packet)
-			} else if wb.lanHDSwitched.Load() {
+			if wb.lanHDSwitched.Load() {
 				wasReady := lanVideo.ready
 				packets := lanVideo.push(packet, time.Now())
 				if !wasReady && lanVideo.ready {

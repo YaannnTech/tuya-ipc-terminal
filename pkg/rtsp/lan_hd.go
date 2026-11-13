@@ -96,7 +96,7 @@ type lanHDVideo struct {
 	params     [3][]byte
 	ready      bool
 	sequencer  rtp.Sequencer
-	reorder    *lanHDReorder
+	reorder    *rtpReorder
 	warnedDrop bool
 }
 
@@ -116,12 +116,12 @@ func (v *lanHDVideo) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 		out := v.repacketize(packet)
 		// The camera can reset its sequence numbers during the switch.
 		if v.ready {
-			v.reorder = &lanHDReorder{next: packet.SequenceNumber + 1, ssrc: packet.SSRC}
+			v.reorder = &rtpReorder{started: true, next: packet.SequenceNumber + 1, ssrc: packet.SSRC}
 		}
 		return out
 	}
 	var out []*rtp.Packet
-	for _, input := range v.reorder.push(packet, now) {
+	for _, input := range v.reorder.push(packet, now, lanHDReorderWait, lanHDReorderWindow, "/hd-lan") {
 		out = append(out, v.repacketize(input)...)
 	}
 	return out

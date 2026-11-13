@@ -13,23 +13,26 @@ const (
 	lanHDReorderWindow = 256
 )
 
-type lanHDPendingPacket struct {
+type pendingRTPPacket struct {
 	packet   *rtp.Packet
 	received time.Time
 }
 
-// lanHDReorder holds later packets briefly when an earlier sequence is missing.
-type lanHDReorder struct {
+// rtpReorder holds later packets briefly when an earlier sequence is missing.
+type rtpReorder struct {
+	started bool
 	next    uint16
 	ssrc    uint32
-	pending map[uint16]lanHDPendingPacket
+	pending map[uint16]pendingRTPPacket
 	warned  bool
 }
 
-func (r *lanHDReorder) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
+func (r *rtpReorder) push(
+	packet *rtp.Packet, now time.Time, wait time.Duration, window uint16, label string,
+) []*rtp.Packet {
 	seq := packet.SequenceNumber
-	if packet.SSRC != r.ssrc {
-		*r = lanHDReorder{next: seq, ssrc: packet.SSRC}
+	if !r.started || packet.SSRC != r.ssrc {
+		*r = rtpReorder{started: true, next: seq, ssrc: packet.SSRC}
 	}
 	if int16(seq-r.next) < 0 {
 		return nil
@@ -39,12 +42,30 @@ func (r *lanHDReorder) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 		return []*rtp.Packet{packet}
 	}
 	if r.pending == nil {
-		r.pending = make(map[uint16]lanHDPendingPacket)
+		r.pending = make(map[uint16]pendingRTPPacket)
 	}
 	if _, exists := r.pending[seq]; !exists {
-		r.pending[seq] = lanHDPendingPacket{packet: packet, received: now}
+		r.pending[seq] = pendingRTPPacket{packet: packet, received: now}
 	}
+	return r.drain(now, wait, window, label)
+}
 
+func (r *rtpReorder) deadline(wait time.Duration) time.Time {
+	var oldest time.Time
+	for _, pending := range r.pending {
+		if oldest.IsZero() || pending.received.Before(oldest) {
+			oldest = pending.received
+		}
+	}
+	if oldest.IsZero() {
+		return time.Time{}
+	}
+	return oldest.Add(wait)
+}
+
+func (r *rtpReorder) drain(
+	now time.Time, wait time.Duration, window uint16, label string,
+) []*rtp.Packet {
 	var out []*rtp.Packet
 	for len(r.pending) != 0 {
 		if next, exists := r.pending[r.next]; exists {
@@ -63,12 +84,13 @@ func (r *lanHDReorder) push(packet *rtp.Packet, now time.Time) []*rtp.Packet {
 				oldest = pending.received
 			}
 		}
-		if now.Sub(oldest) < lanHDReorderWait && farthest < lanHDReorderWindow {
+		if now.Sub(oldest) < wait && farthest < window {
 			break
 		}
 		if !r.warned {
 			r.warned = true
-			core.Logger.Warn().Msg("/hd-lan: skipping missing video RTP packets after reorder limit")
+			core.Logger.Warn().Msgf("%s: skipping missing video RTP packets after reorder limit",
+				label)
 		}
 		r.next += nearest
 	}
