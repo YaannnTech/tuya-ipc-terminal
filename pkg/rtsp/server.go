@@ -50,6 +50,7 @@ type RTSPClient struct {
 	backAudioRTPChannel  byte
 	backAudioRTCPChannel byte
 	setupCount           int
+	playing              bool
 }
 
 type CameraStream struct {
@@ -374,9 +375,8 @@ func (s *RTSPServer) getOrCreateStream(camera *storage.CameraInfo, streamResolut
 
 		core.Logger.Error().Err(err).Msgf("WebRTC error for camera %s", camera.DeviceName)
 
-		// The bridge has no reconnect logic, so a stream whose WebRTC side
-		// failed stays dead. Stop it and close its sessions: clients reconnect
-		// and get a fresh stream instead of waiting for packets forever.
+		// A terminal bridge failure leaves the stream dead. Close its sessions
+		// so clients reconnect instead of waiting for packets forever.
 		sessions := stream.clientSessionsLocked()
 		stream.stopStreamInternal("bridge_error")
 		stream.mutex.Unlock()

@@ -127,14 +127,14 @@ func TestLANHDUsesHostCandidatesOnly(t *testing.T) {
 	} {
 		t.Run(tt.resolution, func(t *testing.T) {
 			bridge := NewWebRTCBridge(&storage.CameraInfo{}, tt.resolution, nil, nil)
-			if err := bridge.setupPeerConnection(config); err != nil {
+			if err := bridge.session.Load().setupPeerConnection(config); err != nil {
 				t.Fatal(err)
 			}
 			defer bridge.Stop()
-			if got := len(bridge.peerConnection.GetConfiguration().ICEServers); got != tt.servers {
+			if got := len(bridge.session.Load().peerConnection.GetConfiguration().ICEServers); got != tt.servers {
 				t.Fatalf("ICE server count = %d, want %d", got, tt.servers)
 			}
-			if tt.resolution == lanHDResolution && bridge.lanHDICETransport() == nil {
+			if tt.resolution == lanHDResolution && bridge.session.Load().lanHDICETransport() == nil {
 				t.Fatal("missing bundled ICE transport")
 			}
 		})
@@ -364,11 +364,11 @@ func TestLANHDRejectsBrokenFragments(t *testing.T) {
 func TestLANHDStartupErrorUnblocksWaiters(t *testing.T) {
 	bridge := NewWebRTCBridge(&storage.CameraInfo{}, lanHDResolution, nil, nil)
 	want := errors.New("test error")
-	bridge.handleError("test", want)
-	if err := bridge.waitFor(&bridge.waiter, "connection"); !errors.Is(err, want) {
+	bridge.session.Load().handleError("test", want)
+	if err := bridge.session.Load().waitFor(&bridge.session.Load().waiter, "connection"); !errors.Is(err, want) {
 		t.Fatalf("connection error = %v", err)
 	}
-	if err := bridge.waitFor(&bridge.lanHDReady, "HEVC"); !errors.Is(err, want) {
+	if err := bridge.session.Load().waitFor(&bridge.session.Load().lanHDReady, "HEVC"); !errors.Is(err, want) {
 		t.Fatalf("HEVC error = %v", err)
 	}
 	bridge.Stop()

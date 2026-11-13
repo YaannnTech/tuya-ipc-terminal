@@ -36,6 +36,8 @@ type RTSPResponse struct {
 	Body       string
 }
 
+const rtspSessionTimeout = 60 * time.Second
+
 func sendRTSPResponse(conn net.Conn, statusCode int, status string, headers map[string]string, body string) error {
 	var response strings.Builder
 
@@ -121,7 +123,11 @@ func (s *RTSPServer) handleRTSPProtocol(client *RTSPClient) {
 	defer s.removeClient(client.session)
 
 	for {
-		if err := client.conn.SetReadDeadline(time.Now().Add(60 * time.Second)); err != nil {
+		var deadline time.Time
+		if !client.playing {
+			deadline = time.Now().Add(rtspSessionTimeout)
+		}
+		if err := client.conn.SetReadDeadline(deadline); err != nil {
 			break
 		}
 
@@ -131,6 +137,11 @@ func (s *RTSPServer) handleRTSPProtocol(client *RTSPClient) {
 			if client.stream.active && !strings.Contains(err.Error(), "connection reset by peer") {
 				core.Logger.Error().Err(err).Msg("Error peeking connection")
 			}
+			break
+		}
+
+		// Bound incomplete requests and interleaved frames, not idle PLAY sessions.
+		if err := client.conn.SetReadDeadline(time.Now().Add(rtspSessionTimeout)); err != nil {
 			break
 		}
 
@@ -476,7 +487,7 @@ func (s *RTSPServer) handleSetup(client *RTSPClient, request *RTSPRequest) {
 	headers := map[string]string{
 		"CSeq":      strconv.Itoa(request.CSeq),
 		"Transport": responseTransport,
-		"Session":   client.session + ";timeout=60",
+		"Session":   fmt.Sprintf("%s;timeout=%d", client.session, int(rtspSessionTimeout/time.Second)),
 	}
 
 	sendRTSPResponse(client.conn, 200, "OK", headers, "")
@@ -501,6 +512,7 @@ func (s *RTSPServer) handlePlay(client *RTSPClient, request *RTSPRequest) {
 
 	sendRTSPResponse(client.conn, 200, "OK", headers, "")
 
+	client.playing = true
 	core.Logger.Info().Msgf("Starting RTSP stream for client %s", client.session)
 }
 

@@ -1,6 +1,7 @@
 package tuya
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,7 +77,8 @@ func NewMqttCameraClient(mqttClient *MQTTClient, device *Device, webrtcConfig *W
 	}
 }
 
-func (c *MQTTCameraClient) SendOffer(sdp string, streamResolution string, streamType int, isHEVC bool) error {
+// SendOffer sends a WebRTC offer, stopping the publish wait on cancellation.
+func (c *MQTTCameraClient) SendOffer(ctx context.Context, sdp string, streamResolution string, streamType int, isHEVC bool) error {
 	if isHEVC {
 		// On HEVC we use streamType 0 for main stream (hd) and 1 for sub stream (sd)
 		if streamResolution == "hd" {
@@ -86,7 +88,7 @@ func (c *MQTTCameraClient) SendOffer(sdp string, streamResolution string, stream
 		}
 	}
 
-	return c.sendMqttMessage("offer", 302, "", OfferFrame{
+	return c.sendMqttMessageWithContext(ctx, "offer", 302, "", OfferFrame{
 		Mode:              "webrtc",
 		Sdp:               sdp,
 		StreamType:        streamType,
@@ -94,14 +96,15 @@ func (c *MQTTCameraClient) SendOffer(sdp string, streamResolution string, stream
 		Token:             c.webrtcConfig.P2PConfig.Ices,
 		Replay:            Replay{IsReplay: 0},
 		DatachannelEnable: isHEVC,
-	})
+	}, 0)
 }
 
-func (c *MQTTCameraClient) SendCandidate(candidate string) error {
-	return c.sendMqttMessage("candidate", 302, "", CandidateFrame{
+// SendCandidate sends an ICE candidate, stopping the publish wait on cancellation.
+func (c *MQTTCameraClient) SendCandidate(ctx context.Context, candidate string) error {
+	return c.sendMqttMessageWithContext(ctx, "candidate", 302, "", CandidateFrame{
 		Mode:      "webrtc",
 		Candidate: candidate,
-	})
+	}, 0)
 }
 
 func (c *MQTTCameraClient) SendResolution(resolution int) error {
@@ -126,9 +129,9 @@ func (c *MQTTCameraClient) SendSpeaker(speaker int) error {
 }
 
 func (c *MQTTCameraClient) SendDisconnect() error {
-	return c.sendMqttMessage("disconnect", 302, "", DisconnectFrame{
+	return c.sendMqttMessageWithTimeout("disconnect", 302, "", DisconnectFrame{
 		Mode: "webrtc",
-	})
+	}, time.Second)
 }
 
 func (c *MQTTCameraClient) onMqttAnswer(msg *MqttMessage) {
@@ -188,6 +191,16 @@ func (c *MQTTCameraClient) sendMqttMessage(messageType string, protocol int, tra
 }
 
 func (c *MQTTCameraClient) sendMqttMessageWithTimeout(messageType string, protocol int, transactionID string, data interface{}, timeout time.Duration) error {
+	return c.sendMqttMessageWithContext(context.Background(), messageType, protocol, transactionID, data, timeout)
+}
+
+func (c *MQTTCameraClient) sendMqttMessageWithContext(
+	ctx context.Context, messageType string, protocol int, transactionID string,
+	data interface{}, timeout time.Duration,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if c.mqttClient.closed.Load() {
 		return errors.New("mqtt client is closed, send mqtt message fail")
 	}
@@ -227,7 +240,11 @@ func (c *MQTTCameraClient) sendMqttMessageWithTimeout(messageType string, protoc
 			return fmt.Errorf("timed out waiting for MQTT %s publish", messageType)
 		}
 	} else {
-		token.Wait()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-token.Done():
+		}
 	}
 	if token.Error() != nil {
 		core.Logger.Error().Err(token.Error()).Msgf("Send mqtt message error")
