@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -74,6 +75,8 @@ Example:
 	}
 
 	cmd.Flags().Bool("qr", false, "Use QR code authentication (default)")
+	cmd.Flags().Bool("print-qr-url", false,
+		"Print the QR login URL as plain text (for UIs that render their own QR code)")
 	cmd.Flags().Bool("password", false, "Use email/password authentication")
 	cmd.Flags().String("country-code", "", "Phone country code of the account (e.g. 55 for Brazil), used with --password")
 
@@ -100,6 +103,8 @@ func newRefreshCmd() *cobra.Command {
 	}
 
 	cmd.Flags().Bool("qr", false, "Use QR code authentication (default)")
+	cmd.Flags().Bool("print-qr-url", false,
+		"Print the QR login URL as plain text (for UIs that render their own QR code)")
 	cmd.Flags().Bool("password", false, "Use email/password authentication")
 	cmd.Flags().String("country-code", "", "Phone country code of the account (e.g. 55 for Brazil), used with --password")
 
@@ -179,6 +184,7 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 
 	usePassword, _ := cmd.Flags().GetBool("password")
 	useQR, _ := cmd.Flags().GetBool("qr")
+	printQRURL, _ := cmd.Flags().GetBool("print-qr-url")
 	countryCode, _ := cmd.Flags().GetString("country-code")
 
 	if countryCode != "" && !isKnownCountryCode(countryCode) {
@@ -240,7 +246,7 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 	if usePassword {
 		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode)
 	} else {
-		sessionData, err = performQRAuthentication(*selectedRegion, email)
+		sessionData, err = performQRAuthentication(*selectedRegion, email, printQRURL)
 	}
 
 	if err != nil {
@@ -293,6 +299,7 @@ func runRefreshUser(cmd *cobra.Command, args []string) error {
 
 	usePassword, _ := cmd.Flags().GetBool("password")
 	useQR, _ := cmd.Flags().GetBool("qr")
+	printQRURL, _ := cmd.Flags().GetBool("print-qr-url")
 	countryCode, _ := cmd.Flags().GetString("country-code")
 
 	if countryCode != "" && !isKnownCountryCode(countryCode) {
@@ -337,7 +344,7 @@ func runRefreshUser(cmd *cobra.Command, args []string) error {
 	if usePassword {
 		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode)
 	} else {
-		sessionData, err = performQRAuthentication(*selectedRegion, email)
+		sessionData, err = performQRAuthentication(*selectedRegion, email, printQRURL)
 	}
 
 	if err != nil {
@@ -565,7 +572,15 @@ func performPasswordAuthentication(region tuya.Region, email, countryCode string
 	return sessionData, nil
 }
 
-func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionData, error) {
+func printQRCode(w io.Writer, token string, printURL bool) {
+	qrURL := "tuyaSmart--qrLogin?token=" + token
+	if printURL {
+		fmt.Fprintln(w, "QR_LOGIN_URL:"+qrURL)
+	}
+	qrterminal.Generate(qrURL, qrterminal.L, w)
+}
+
+func performQRAuthentication(region tuya.Region, email string, printQRURL bool) (*tuya.SessionData, error) {
 	serverHost := region.Host
 
 	httpClient := createHTTPClientWithSession(nil)
@@ -577,7 +592,7 @@ func performQRAuthentication(region tuya.Region, email string) (*tuya.SessionDat
 		return nil, fmt.Errorf("error generating QR code: %v", err)
 	}
 
-	qrterminal.Generate("tuyaSmart--qrLogin?token="+qrCodeToken, qrterminal.L, os.Stdout)
+	printQRCode(os.Stdout, qrCodeToken, printQRURL)
 	fmt.Printf("\nPlease scan the QR code with the Tuya Smart / Smart Life app.\n")
 	fmt.Printf("Make sure to use the account with email: %s\n", email)
 	fmt.Println("\nPress Enter after scanning to continue...")

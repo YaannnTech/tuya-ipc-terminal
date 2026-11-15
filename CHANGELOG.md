@@ -10,6 +10,9 @@ are releases of the original project,
 
 ### Added
 
+- Container images for pushes to main, tagged `edge` and `sha-<commit>` (#35).
+- `--print-qr-url` for `auth add` and `auth refresh` prints the QR login
+  URL as plain text for UIs that render their own QR code (#35).
 - Per-stream ICE, WebRTC and MQTT lifecycle diagnostics for investigating
   TURN refresh failures (#11).
 

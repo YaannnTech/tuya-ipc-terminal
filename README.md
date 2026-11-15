@@ -88,6 +88,8 @@ docker run --rm -it -v ./tuya-data:/data/.tuya-data ghcr.io/yaannntech/tuya-ipc-
 
 The image runs as a non-root user (uid 1000) in `/data` and keeps sessions in `/data/.tuya-data`, so mount a directory there that uid 1000 can write. For the RTSP server, publish its port (`-p 8554:8554`).
 
+Image tags include `sha-<commit>` (seven characters) for pinning main commits, `edge` for the latest main build, and `x.y.z` for releases.
+
 ### 1-Minute Setup
 
 ```bash
@@ -115,6 +117,7 @@ ffplay rtsp://localhost:8554/MyCamera
 ./tuya-ipc-terminal auth add eu-central user@example.com
 # Scan QR code with Tuya Smart/Smart Life app
 ```
+Use `--print-qr-url` with `auth add` or `auth refresh` to print the QR login URL for UIs that render their own QR code.
 
 **🔑 Email/Password**
 ```bash
