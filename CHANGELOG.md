@@ -8,6 +8,8 @@ are releases of the original project,
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-14
+
 ### Added
 
 - Container images for pushes to main, tagged `edge` and `sha-<commit>` (#35).
@@ -99,6 +101,7 @@ First release of the fork, based on the original project's 0.0.6.
   current `golang.org/x` modules), which fixes the vulnerabilities
   `govulncheck` reported. Building needs Go 1.26 or newer.
 
-[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/YaannnTech/tuya-ipc-terminal/releases/tag/v0.1.0
