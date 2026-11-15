@@ -170,11 +170,11 @@ func (v *lanHDVideo) repacketize(packet *rtp.Packet) []*rtp.Packet {
 	return out
 }
 
-// packetizeLANHD emits RFC 7798 single NAL, aggregation and FU packets.
+// packetizeLANHD emits RFC 7798 single NAL and FU packets. Keep NAL units
+// separate because go2rtc's HEVC depacketizer does not unpack aggregation packets.
 func packetizeLANHD(nals [][]byte) [][]byte {
 	var payloads [][]byte
-	for i := 0; i < len(nals); {
-		nal := nals[i]
+	for _, nal := range nals {
 		if len(nal) > lanHDMTU {
 			for offset := 2; offset < len(nal); {
 				end := min(offset+lanHDMTU-3, len(nal))
@@ -189,29 +189,9 @@ func packetizeLANHD(nals [][]byte) [][]byte {
 				payloads = append(payloads, fu)
 				offset = end
 			}
-			i++
 			continue
 		}
-		end, size := i, 2
-		tid := byte(7)
-		for end < len(nals) && size+2+len(nals[end]) <= lanHDMTU {
-			size += 2 + len(nals[end])
-			tid = min(tid, nals[end][1]&7)
-			end++
-		}
-		if end-i < 2 {
-			payloads = append(payloads, append([]byte(nil), nal...))
-			i++
-			continue
-		}
-		ap := make([]byte, 0, size)
-		ap = append(ap, 48<<1, tid)
-		for _, unit := range nals[i:end] {
-			ap = binary.BigEndian.AppendUint16(ap, uint16(len(unit)))
-			ap = append(ap, unit...)
-		}
-		payloads = append(payloads, ap)
-		i = end
+		payloads = append(payloads, append([]byte(nil), nal...))
 	}
 	return payloads
 }

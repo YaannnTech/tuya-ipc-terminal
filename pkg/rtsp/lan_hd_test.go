@@ -229,16 +229,13 @@ func TestLANHDRepacketizesCapturedHeaders(t *testing.T) {
 	packet.Marker = true
 	packet.Payload = append([]byte{0x3c, 0x46}, idr[1201:]...)
 	out := v.repacketize(packet)
-	if !v.ready || len(out) != 4 {
-		t.Fatalf("ready = %t, output packets = %d, want AP and 3 FUs", v.ready, len(out))
+	if !v.ready || len(out) != 6 {
+		t.Fatalf("ready = %t, output packets = %d, want 3 parameter sets and 3 FUs", v.ready, len(out))
 	}
-	wantAP := []byte{0x60, 1}
-	for _, nal := range params {
-		wantAP = binary.BigEndian.AppendUint16(wantAP, uint16(len(nal)))
-		wantAP = append(wantAP, nal...)
-	}
-	if !bytes.Equal(out[0].Payload, wantAP) {
-		t.Fatalf("AP = %x, want %x", out[0].Payload, wantAP)
+	for i, nal := range params {
+		if !bytes.Equal(out[i].Payload, nal) {
+			t.Fatalf("parameter set %d = %x, want a separate NAL %x", i, out[i].Payload, nal)
+		}
 	}
 	rebuilt := append([]byte{}, idr[:2]...)
 	for i, p := range out {
@@ -246,11 +243,11 @@ func TestLANHDRepacketizesCapturedHeaders(t *testing.T) {
 			p.Marker != (i == len(out)-1) || (i > 0 && p.SequenceNumber != out[i-1].SequenceNumber+1) {
 			t.Fatalf("wrong RTP header %d: %+v", i, p.Header)
 		}
-		if i == 0 {
+		if i < len(params) {
 			continue
 		}
 		flags := byte(19)
-		if i == 1 {
+		if i == len(params) {
 			flags |= 0x80
 		}
 		if i == len(out)-1 {
@@ -306,7 +303,7 @@ func TestLANHDStartsReorderingAfterKeyframe(t *testing.T) {
 		t.Fatal("started before keyframe")
 	}
 	input = &rtp.Packet{Header: rtp.Header{SequenceNumber: 11, SSRC: 8, Marker: true}, Payload: []byte{0x26, 1, 0x80}}
-	if out := v.push(input, now); len(out) != 1 || v.reorder == nil {
+	if out := v.push(input, now); len(out) != 4 || v.reorder == nil {
 		t.Fatal("did not start at keyframe")
 	}
 	later := &rtp.Packet{Header: rtp.Header{SequenceNumber: 13, SSRC: 8}, Payload: []byte{2, 1, 0x80}}
