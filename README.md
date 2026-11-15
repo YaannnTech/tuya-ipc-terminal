@@ -115,6 +115,7 @@ ffplay rtsp://localhost:8554/MyCamera
 ./tuya-ipc-terminal auth add eu-central user@example.com
 # Scan QR code with Tuya Smart/Smart Life app
 ```
+Use `--print-qr-url` with `auth add` or `auth refresh` to print the QR login URL for UIs that render their own QR code.
 
 **🔑 Email/Password**
 ```bash

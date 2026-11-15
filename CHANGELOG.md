@@ -10,6 +10,8 @@ are releases of the original project,
 
 ### Added
 
+- `--print-qr-url` for `auth add` and `auth refresh` prints the QR login
+  URL as plain text for UIs that render their own QR code (#35).
 - Per-stream ICE, WebRTC and MQTT lifecycle diagnostics for investigating
   TURN refresh failures (#11).
 
