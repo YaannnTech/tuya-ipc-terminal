@@ -140,6 +140,37 @@ Brazilian accounts can use the `brazil` shortcut instead, which targets the
 ./tuya-ipc-terminal auth add brazil user@example.com --password
 ```
 
+#### Non-interactive use
+
+`auth add` and `auth refresh` accept two flags for scripts and containers:
+
+- `--password-stdin` (requires `--password`) reads the password as one line
+  from standard input instead of the terminal. Only the trailing newline is
+  removed. The password is never accepted as an argument or an environment
+  variable.
+- `--yes` (`-y`) answers the "already exists, re-authenticate?" question of
+  `auth add` with yes. `auth refresh` accepts the flag too but never asks.
+
+With `--password-stdin` but without `--yes`, `auth add` for an existing
+account does not wait for an answer (standard input carries the password):
+it exits with code 4 and asks for `--yes`.
+
+```bash
+# Password from a file or a secret store, like "docker login --password-stdin"
+./tuya-ipc-terminal auth add eu-central user@example.com --password --password-stdin --yes < password.txt
+printf '%s\n' "$TUYA_PASSWORD" | ./tuya-ipc-terminal auth refresh eu-central user@example.com --password --password-stdin
+```
+
+Exit codes of `auth add` and `auth refresh`:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success (also when an interactive answer declines the re-authentication) |
+| 1 | Other error (network, storage, unknown user for `auth refresh`, QR login problems) |
+| 2 | Usage error: wrong arguments, unknown flag, `--password-stdin` without `--password`, invalid region, e-mail or country code, empty password on standard input |
+| 3 | Login rejected: the Tuya cloud answered "wrong account or password" (it gives the same answer for OEM accounts that only support QR login) |
+| 4 | The account already exists and `--yes` is missing (only with `--password-stdin`) |
+
 #### QR or password login
 
 QR login is the recommended method. Password login is known to be

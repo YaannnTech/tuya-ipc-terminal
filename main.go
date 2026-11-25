@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"tuya-ipc-terminal/cmd"
+	"tuya-ipc-terminal/cmd/auth"
 	"tuya-ipc-terminal/pkg/core"
 )
 
@@ -16,6 +17,6 @@ func main() {
 
 	if err := cmd.Execute(VERSION); err != nil {
 		fmt.Println("Command execution failed")
-		os.Exit(1)
+		os.Exit(auth.ExitCode(err))
 	}
 }

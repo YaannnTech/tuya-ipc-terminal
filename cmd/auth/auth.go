@@ -66,19 +66,27 @@ Authentication methods:
   --qr       Use QR code authentication (default)
   --password Use email/password authentication
 
+For scripts, --yes answers the "already exists" question with yes and
+--password-stdin reads the password as one line from standard input. Exit
+codes: 0 success, 1 other error, 2 usage error, 3 wrong credentials,
+4 account exists and not confirmed.
+
 Example:
   tuya-ipc-terminal auth add eu-central user@example.com
   tuya-ipc-terminal auth add --password eu-central user@example.com
-  tuya-ipc-terminal auth add --password --country-code 55 us-west user@example.com`,
-		Args: cobra.ExactArgs(2),
+  tuya-ipc-terminal auth add --password --country-code 55 us-west user@example.com
+  tuya-ipc-terminal auth add --password --password-stdin --yes eu-central user@example.com < password.txt`,
+		Args: usageArgs(cobra.ExactArgs(2)),
 		RunE: runAddUser,
 	}
+	cmd.SetFlagErrorFunc(usageFlagError)
 
 	cmd.Flags().Bool("qr", false, "Use QR code authentication (default)")
 	cmd.Flags().Bool("print-qr-url", false,
 		"Print the QR login URL as plain text (for UIs that render their own QR code)")
 	cmd.Flags().Bool("password", false, "Use email/password authentication")
 	cmd.Flags().String("country-code", "", "Phone country code of the account (e.g. 55 for Brazil), used with --password")
+	addNonInteractiveFlags(cmd)
 
 	return cmd
 }
@@ -97,16 +105,22 @@ func newRefreshCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "refresh [region] [email]",
 		Short: "Refresh user session",
-		Long:  "Refresh an existing user session by re-authenticating.",
-		Args:  cobra.ExactArgs(2),
-		RunE:  runRefreshUser,
+		Long: `Refresh an existing user session by re-authenticating.
+
+--password-stdin reads the password as one line from standard input. --yes is
+accepted for symmetry with 'auth add'; refresh never asks for confirmation.
+Exit codes: 0 success, 1 other error, 2 usage error, 3 wrong credentials.`,
+		Args: usageArgs(cobra.ExactArgs(2)),
+		RunE: runRefreshUser,
 	}
+	cmd.SetFlagErrorFunc(usageFlagError)
 
 	cmd.Flags().Bool("qr", false, "Use QR code authentication (default)")
 	cmd.Flags().Bool("print-qr-url", false,
 		"Print the QR login URL as plain text (for UIs that render their own QR code)")
 	cmd.Flags().Bool("password", false, "Use email/password authentication")
 	cmd.Flags().String("country-code", "", "Phone country code of the account (e.g. 55 for Brazil), used with --password")
+	addNonInteractiveFlags(cmd)
 
 	return cmd
 }
@@ -186,9 +200,15 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 	useQR, _ := cmd.Flags().GetBool("qr")
 	printQRURL, _ := cmd.Flags().GetBool("print-qr-url")
 	countryCode, _ := cmd.Flags().GetString("country-code")
+	yes, _ := cmd.Flags().GetBool("yes")
+	passwordStdin, _ := cmd.Flags().GetBool("password-stdin")
+
+	if passwordStdin && !usePassword {
+		return usageError(errors.New("--password-stdin requires --password"))
+	}
 
 	if countryCode != "" && !isKnownCountryCode(countryCode) {
-		return fmt.Errorf("unknown country code: %s (see 'auth show-country-codes')", countryCode)
+		return usageError(fmt.Errorf("unknown country code: %s (see 'auth show-country-codes')", countryCode))
 	}
 
 	if !usePassword && !useQR {
@@ -210,11 +230,11 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 		for _, region := range AvailableRegions {
 			fmt.Printf("  %s - %s\n", region.Name, region.Description)
 		}
-		return fmt.Errorf("invalid region")
+		return usageError(errors.New("invalid region"))
 	}
 
 	if !strings.Contains(email, "@") || !strings.Contains(email, ".") {
-		return fmt.Errorf("invalid email format: %s", email)
+		return usageError(fmt.Errorf("invalid email format: %s", email))
 	}
 
 	existingUser, err := storageManager.GetUser(selectedRegion.Name, email)
@@ -224,12 +244,21 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 
 	if existingUser != nil {
 		fmt.Printf("User %s in region %s already exists.\n", email, selectedRegion.Name)
-		fmt.Println("Do you want to re-authenticate? (y/N): ")
+		switch {
+		case yes:
+			fmt.Println("Re-authenticating (--yes).")
+		case passwordStdin:
+			return &CodedError{Code: ExitNotConfirmed, Err: fmt.Errorf(
+				"user %s in region %s already exists; add --yes to re-authenticate (standard input is used for the password)",
+				email, selectedRegion.Name)}
+		default:
+			fmt.Println("Do you want to re-authenticate? (y/N): ")
 
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
-			return nil
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) != "y" && strings.ToLower(response) != "yes" {
+				return nil
+			}
 		}
 	}
 
@@ -244,13 +273,13 @@ func runAddUser(cmd *cobra.Command, args []string) error {
 
 	var sessionData *tuya.SessionData
 	if usePassword {
-		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode)
+		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode, passwordStdin)
 	} else {
 		sessionData, err = performQRAuthentication(*selectedRegion, email, printQRURL)
 	}
 
 	if err != nil {
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	if err := storageManager.SaveUser(selectedRegion.Name, email, sessionData); err != nil {
@@ -301,9 +330,14 @@ func runRefreshUser(cmd *cobra.Command, args []string) error {
 	useQR, _ := cmd.Flags().GetBool("qr")
 	printQRURL, _ := cmd.Flags().GetBool("print-qr-url")
 	countryCode, _ := cmd.Flags().GetString("country-code")
+	passwordStdin, _ := cmd.Flags().GetBool("password-stdin")
+
+	if passwordStdin && !usePassword {
+		return usageError(errors.New("--password-stdin requires --password"))
+	}
 
 	if countryCode != "" && !isKnownCountryCode(countryCode) {
-		return fmt.Errorf("unknown country code: %s (see 'auth show-country-codes')", countryCode)
+		return usageError(fmt.Errorf("unknown country code: %s (see 'auth show-country-codes')", countryCode))
 	}
 
 	if !usePassword && !useQR {
@@ -320,7 +354,7 @@ func runRefreshUser(cmd *cobra.Command, args []string) error {
 	}
 
 	if selectedRegion == nil {
-		return fmt.Errorf("invalid region: %s", regionName)
+		return usageError(fmt.Errorf("invalid region: %s", regionName))
 	}
 
 	existingUser, err := storageManager.GetUser(regionName, email)
@@ -342,13 +376,13 @@ func runRefreshUser(cmd *cobra.Command, args []string) error {
 
 	var sessionData *tuya.SessionData
 	if usePassword {
-		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode)
+		sessionData, err = performPasswordAuthentication(*selectedRegion, email, countryCode, passwordStdin)
 	} else {
 		sessionData, err = performQRAuthentication(*selectedRegion, email, printQRURL)
 	}
 
 	if err != nil {
-		return fmt.Errorf("authentication failed: %v", err)
+		return fmt.Errorf("authentication failed: %w", err)
 	}
 
 	if err := storageManager.SaveUser(regionName, email, sessionData); err != nil {
@@ -510,6 +544,24 @@ func promptAuthMethod() string {
 	}
 }
 
+// stdin is where --password-stdin reads the password from.
+var stdin io.Reader = os.Stdin
+
+// readPasswordLine reads one line from r and returns it without the trailing
+// newline (LF or CRLF). Nothing else is trimmed. The reader is buffered, so
+// input after the first line may be read and is discarded.
+func readPasswordLine(r io.Reader) (string, error) {
+	line, err := bufio.NewReader(r).ReadString('\n')
+	if err != nil && (err != io.EOF || line == "") {
+		return "", fmt.Errorf("failed to read the password from standard input: %v", err)
+	}
+	line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	if line == "" {
+		return "", errors.New("the password read from standard input is empty")
+	}
+	return line, nil
+}
+
 func promptPassword() (string, error) {
 	fmt.Print("Enter password: ")
 
@@ -527,7 +579,11 @@ func promptPassword() (string, error) {
 func passwordLoginError(err error) error {
 	var apiErr *tuya.APIError
 	if errors.As(err, &apiErr) {
-		return fmt.Errorf("password authentication failed: %v\n%s.", err, tuya.OEMLoginHint)
+		wrapped := fmt.Errorf("password authentication failed: %v\n%s.", err, tuya.OEMLoginHint)
+		if tuya.IsWrongCredentials(err) {
+			return &CodedError{Code: ExitBadCredentials, Err: wrapped}
+		}
+		return wrapped
 	}
 	return fmt.Errorf("password authentication failed: %v", err)
 }
@@ -536,15 +592,26 @@ func passwordLoginError(err error) error {
 // registered with. Countries that share a data center without matching its
 // continent code (e.g. Brazil on us-west) need countryCode set explicitly;
 // when empty, the region's continent code is sent instead.
-func performPasswordAuthentication(region tuya.Region, email, countryCode string) (*tuya.SessionData, error) {
+func performPasswordAuthentication(
+	region tuya.Region, email, countryCode string, passwordStdin bool,
+) (*tuya.SessionData, error) {
 	serverHost := region.Host
 
-	password, err := promptPassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get password: %v", err)
+	var password string
+	var err error
+	if passwordStdin {
+		password, err = readPasswordLine(stdin)
+		if err != nil {
+			return nil, usageError(err)
+		}
+	} else {
+		password, err = promptPassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get password: %v", err)
+		}
 	}
 
-	httpClient := createHTTPClientWithSession(nil)
+	httpClient := newHTTPClient()
 
 	fmt.Println("\nAuthenticating with email/password...")
 
@@ -583,7 +650,7 @@ func printQRCode(w io.Writer, token string, printURL bool) {
 func performQRAuthentication(region tuya.Region, email string, printQRURL bool) (*tuya.SessionData, error) {
 	serverHost := region.Host
 
-	httpClient := createHTTPClientWithSession(nil)
+	httpClient := newHTTPClient()
 
 	fmt.Println("Generating QR code...")
 	ctx := context.Background()
@@ -628,6 +695,9 @@ func performQRAuthentication(region tuya.Region, email string, printQRURL bool) 
 
 	return sessionData, nil
 }
+
+// newHTTPClient creates the HTTP client for a login; tests replace it.
+var newHTTPClient = func() *http.Client { return createHTTPClientWithSession(nil) }
 
 func createHTTPClientWithSession(session *tuya.SessionData) *http.Client {
 	jar, err := cookiejar.New(&cookiejar.Options{
