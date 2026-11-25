@@ -8,11 +8,14 @@ are releases of the original project,
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Added
 
 - `--yes` / `-y` and `--password-stdin` for `auth add` and `auth refresh`,
-  and documented exit codes (2 usage error, 3 login rejected as wrong account
-  or password, 4 account exists and not confirmed) for non-interactive use (#39).
+  and documented exit codes (2 usage error, 3 login rejected as wrong
+  account or password, 4 account exists and not confirmed) for
+  non-interactive use (#39, #41).
 
 ## [0.3.1] - 2026-11-17
 
@@ -116,7 +119,8 @@ First release of the fork, based on the original project's 0.0.6.
   current `golang.org/x` modules), which fixes the vulnerabilities
   `govulncheck` reported. Building needs Go 1.26 or newer.
 
-[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.1.0...v0.2.0
