@@ -227,3 +227,20 @@ func TestIsCameraCategory(t *testing.T) {
 		})
 	}
 }
+
+func TestIsWrongCredentials(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{apiError("账号或密码错误！"), true},
+		{fmt.Errorf("wrapped: %w", apiError("账号或密码错误！")), true},
+		{apiError("内部错误"), false},
+		{errors.New("账号或密码错误！"), false},
+		{nil, false},
+	} {
+		if got := IsWrongCredentials(tc.err); got != tc.want {
+			t.Errorf("IsWrongCredentials(%v) = %t, want %t", tc.err, got, tc.want)
+		}
+	}
+}

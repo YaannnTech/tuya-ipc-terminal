@@ -8,6 +8,12 @@ are releases of the original project,
 
 ## [Unreleased]
 
+### Added
+
+- `--yes` / `-y` and `--password-stdin` for `auth add` and `auth refresh`,
+  and documented exit codes (2 usage error, 3 login rejected as wrong account
+  or password, 4 account exists and not confirmed) for non-interactive use (#39).
+
 ## [0.3.1] - 2026-11-17
 
 ### Fixed

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,6 +66,16 @@ func (e *APIError) Error() string {
 // apiError turns the errorMsg of an unsuccessful API response into an *APIError.
 func apiError(msg string) error {
 	return &APIError{Message: msg, Explained: ExplainMessage(msg)}
+}
+
+// IsWrongCredentials reports whether err is the Tuya cloud's "wrong account
+// or password" login rejection.
+func IsWrongCredentials(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return strings.Contains(apiErr.Message, strings.TrimRight("账号或密码错误！", "！!"))
 }
 
 // DebugEnabled reports whether the TUYA_DEBUG environment variable is set to
