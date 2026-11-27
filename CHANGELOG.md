@@ -8,24 +8,26 @@ are releases of the original project,
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-27
+
 ### Added
 
 - Releases now include binaries for Windows (amd64, arm64) and macOS
   (arm64, amd64) in `SHA256SUMS`, and CI builds all of them. They are
   not signed with a Developer ID or notarized, and have not been run on
-  Windows or macOS yet (#28).
+  Windows or macOS yet (#28, #44).
 
 ### Fixed
 
 - On Windows, `rtsp stop` and `rtsp status` now detect that the server
   has exited even while a handle to it is open, and reject a reused PID
   when its executable name can be read and differs. A new CI job runs the
-  Windows process tests on `windows-latest` (#28).
+  Windows process tests on `windows-latest` (#28, #44).
 - `rtsp stop` and `rtsp status` compare process identities on Linux, macOS
   and Windows to reduce the risk of accepting a reused PID, falling back
   to the existing checks for older records or when identity is unavailable.
   Windows stops the process through the handle used for the check. CI also
-  runs the process tests on `macos-latest` (#43).
+  runs the process tests on `macos-latest` (#43, #45).
 
 ## [0.4.0] - 2026-11-25
 
@@ -138,7 +140,8 @@ First release of the fork, based on the original project's 0.0.6.
   current `golang.org/x` modules), which fixes the vulnerabilities
   `govulncheck` reported. Building needs Go 1.26 or newer.
 
-[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/YaannnTech/tuya-ipc-terminal/compare/v0.2.0...v0.3.0

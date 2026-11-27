@@ -92,7 +92,7 @@ Each tagged release also provides prebuilt binaries with a `SHA256SUMS` file on 
 | `tuya-ipc-terminal-darwin-arm64` | macOS on Apple silicon |
 | `tuya-ipc-terminal-darwin-amd64` | macOS on Intel |
 
-Windows and macOS binaries are included from the first release after 0.4.0 on. On Linux and macOS, make the downloaded file executable with `chmod +x <file>`.
+Windows and macOS binaries are included from 0.5.0 on. On Linux and macOS, make the downloaded file executable with `chmod +x <file>`.
 
 - **Windows:** `rtsp stop` ends the server with a hard kill, because Windows has no SIGTERM for console processes in another process group, so streams are not shut down cleanly. The Windows binaries compile in CI but have not been run on Windows yet.
 - **macOS:** The binaries are not signed with a Developer ID or notarized. If macOS blocks a downloaded binary, remove its quarantine flag: `xattr -d com.apple.quarantine <file>`. They compile in CI but have not been run on a Mac.
