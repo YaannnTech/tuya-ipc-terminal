@@ -4,9 +4,12 @@ package rtsp
 
 import (
 	"bufio"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,6 +26,17 @@ func startFakeServer(t *testing.T) *exec.Cmd {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 	})
+	// Right after Start, /proc/<pid>/cmdline can still be empty because the
+	// child has not finished exec. Wait for it, so the cmdline check sees
+	// "rtsp start" (no /proc, e.g. macOS: nothing to wait for).
+	path := fmt.Sprintf("/proc/%d/cmdline", cmd.Process.Pid)
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		cmdline, err := os.ReadFile(path)
+		if err != nil || strings.Contains(string(cmdline), "rtsp") {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 	return cmd
 }
 
@@ -53,6 +67,13 @@ func TestRunningServersIgnoresReusedPID(t *testing.T) {
 		t.Skip("needs /proc")
 	}
 	dir := t.TempDir()
+	identity, err := processIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if isServerProcess(serverRecord{PID: os.Getpid(), ProcStart: identity}) {
+		t.Fatal("accepted a matching identity with a non-server command line")
+	}
 	// The test binary is alive but is not "rtsp start", like a PID that was
 	// reused by another program after the server crashed.
 	if err := writeServerRecord(dir, serverRecord{PID: os.Getpid(), Port: 8554}); err != nil {
@@ -97,6 +118,115 @@ func TestStopServerEndsTheProcessAndRemovesItsRecord(t *testing.T) {
 	}
 	if _, err := os.Stat(recordPath(dir, 8555)); !os.IsNotExist(err) {
 		t.Fatal("record still there after the server stopped")
+	}
+}
+
+func TestReusedServerPIDIsNotStopped(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("process identity is only available on Linux and macOS")
+	}
+	// Linux records start times in clock ticks, so avoid starting both in one tick.
+	time.Sleep(150 * time.Millisecond)
+	server := startFakeServer(t)
+	identity, err := processIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := serverRecord{PID: server.Process.Pid, Port: 8555, ProcStart: identity}
+	dir := t.TempDir()
+	if err := writeServerRecord(dir, rec); err != nil {
+		t.Fatal(err)
+	}
+	if isServerProcess(rec) {
+		t.Fatal("accepted a process with a different identity")
+	}
+	if err := stopServer(dir, rec); err == nil {
+		t.Fatal("stopped a process with a different identity")
+	}
+	if !processExists(rec.PID) {
+		t.Fatal("the unrelated process was stopped")
+	}
+	servers, err := runningServers(dir)
+	if err != nil || len(servers) != 0 {
+		t.Fatalf("runningServers() = %v, %v; want no server", servers, err)
+	}
+	if _, err := os.Stat(recordPath(dir, rec.Port)); !os.IsNotExist(err) {
+		t.Fatal("stale record was not removed")
+	}
+}
+
+func TestProcessIdentityChecks(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("process identity is only available on Linux and macOS")
+	}
+	if os.Getenv("RTSP_IDENTITY_TEST_CHILD") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestProcessIdentityChecks$", "rtsp", "start")
+		cmd.Env = append(os.Environ(), "RTSP_IDENTITY_TEST_CHILD=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("identity test subprocess: %v\n%s", err, output)
+		}
+		return
+	}
+	self, err := processIdentity(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := processIdentity(os.Getpid())
+	if err != nil || self == "" || again != self {
+		t.Fatalf("process identity changed: %q, %q, %v", self, again, err)
+	}
+	// Linux records start times in clock ticks, so avoid starting both in one tick.
+	time.Sleep(150 * time.Millisecond)
+	server := startFakeServer(t)
+	child, err := processIdentity(server.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child == self {
+		t.Fatal("child has the same process identity")
+	}
+	rec := serverRecord{PID: os.Getpid(), ProcStart: child}
+	if isServerProcess(rec) {
+		t.Fatal("accepted a different process identity")
+	}
+	rec.ProcStart = self
+	if !isServerProcess(rec) {
+		t.Fatal("rejected the matching process identity")
+	}
+	rec.ProcStart = ""
+	if !isServerProcess(rec) {
+		t.Fatal("rejected an older record without an identity")
+	}
+}
+
+func TestServerRecordWithoutIdentityUsesExistingCheck(t *testing.T) {
+	server := startFakeServer(t)
+	if !isServerProcess(serverRecord{PID: server.Process.Pid}) {
+		t.Fatal("record without an identity was rejected")
+	}
+}
+
+func TestServerRecordIdentitySurvivesLogFileRewrite(t *testing.T) {
+	dir := t.TempDir()
+	server := startFakeServer(t)
+	rec := serverRecord{PID: server.Process.Pid, Port: 8554, ProcStart: "identity"}
+	if err := writeServerRecord(dir, rec); err != nil {
+		t.Fatal(err)
+	}
+	// Isolate the record round trip from platform identity support.
+	serverProcessCheck = func(serverRecord) bool { return true }
+	defer func() { serverProcessCheck = isServerProcess }()
+	found, err := findServer(dir, rec.Port)
+	if err != nil || found == nil {
+		t.Fatalf("findServer() = %v, %v", found, err)
+	}
+	found.LogFile = "server.log"
+	if err := writeServerRecord(dir, *found); err != nil {
+		t.Fatal(err)
+	}
+	found, err = findServer(dir, rec.Port)
+	if err != nil || found == nil || found.ProcStart != rec.ProcStart || found.LogFile != "server.log" {
+		t.Fatalf("rewritten record = %v, %v", found, err)
 	}
 }
 
@@ -151,7 +281,7 @@ func TestProbeRTSP(t *testing.T) {
 func TestRecordWithOwnPIDIsStale(t *testing.T) {
 	// In a container the server's own command line is "rtsp start", so the
 	// process check alone would accept the record.
-	serverProcessCheck = func(int) bool { return true }
+	serverProcessCheck = func(serverRecord) bool { return true }
 	defer func() { serverProcessCheck = isServerProcess }()
 
 	dir := t.TempDir()

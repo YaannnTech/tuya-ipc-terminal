@@ -18,10 +18,14 @@ are releases of the original project,
 ### Fixed
 
 - On Windows, `rtsp stop` and `rtsp status` now detect that the server
-  has exited even while a handle to it is open, and no longer treat a
-  PID that a different executable reused as the server (the check
-  compares executable names only). A new CI job runs the Windows process
-  tests on `windows-latest` (#28).
+  has exited even while a handle to it is open, and reject a reused PID
+  when its executable name can be read and differs. A new CI job runs the
+  Windows process tests on `windows-latest` (#28).
+- `rtsp stop` and `rtsp status` compare process identities on Linux, macOS
+  and Windows to reduce the risk of accepting a reused PID, falling back
+  to the existing checks for older records or when identity is unavailable.
+  Windows stops the process through the handle used for the check. CI also
+  runs the process tests on `macos-latest` (#43).
 
 ## [0.4.0] - 2026-11-25
 

@@ -18,11 +18,12 @@ import (
 // .tuya-data/rtsp-<port>.pid so that "rtsp stop" and "rtsp status", which run
 // in their own processes, can find the server.
 type serverRecord struct {
-	PID     int       `json:"pid"`
-	Port    int       `json:"port"`
-	Address string    `json:"address,omitempty"`
-	Started time.Time `json:"started"`
-	LogFile string    `json:"logFile,omitempty"`
+	PID       int       `json:"pid"`
+	Port      int       `json:"port"`
+	Address   string    `json:"address,omitempty"`
+	Started   time.Time `json:"started"`
+	ProcStart string    `json:"procStart,omitempty"`
+	LogFile   string    `json:"logFile,omitempty"`
 }
 
 // serverProcessCheck is isServerProcess; tests replace it.
@@ -32,6 +33,10 @@ const (
 	stopTimeout   = 15 * time.Second
 	daemonTimeout = 10 * time.Second
 )
+
+func matchesProcessIdentity(recorded, actual string, err error) bool {
+	return recorded == "" || err != nil || recorded == actual
+}
 
 func recordPath(dataDir string, port int) string {
 	return filepath.Join(dataDir, fmt.Sprintf("rtsp-%d.pid", port))
@@ -81,7 +86,7 @@ func runningServers(dataDir string) ([]serverRecord, error) {
 		// A record with our own PID is stale too: in a container, a restarted
 		// server can get the same PID as the one that left the record behind.
 		if err := json.Unmarshal(data, &rec); err != nil || rec.PID <= 0 || rec.PID == os.Getpid() ||
-			!serverProcessCheck(rec.PID) {
+			!serverProcessCheck(rec) {
 			_ = os.Remove(path) // stale or broken
 			continue
 		}
@@ -146,7 +151,7 @@ func probeRTSP(address string, port int, timeout time.Duration) error {
 
 // stopServer asks the server to shut down and waits for it to exit.
 func stopServer(dataDir string, rec serverRecord) error {
-	if err := terminateProcess(rec.PID); err != nil {
+	if err := terminateProcess(rec); err != nil {
 		return fmt.Errorf("failed to signal process %d: %v", rec.PID, err)
 	}
 
