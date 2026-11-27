@@ -19,18 +19,23 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Build linux/amd64, linux/arm64, linux/arm
+      - name: Build release binaries
         env:
           CGO_ENABLED: "0"
-          GOOS: linux
           REF_NAME: ${{ github.ref_name }}
         run: |
           version="${REF_NAME#v}"
-          for goarch in amd64 arm64 arm; do
-            GOARCH="$goarch" go build -trimpath -ldflags "-s -w -X main.VERSION=${version}" \
-              -o "tuya-ipc-terminal-linux-${goarch}" .
+          for target in linux/amd64 linux/arm64 linux/arm \
+            windows/amd64 windows/arm64 darwin/arm64 darwin/amd64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            ext=""
+            if [ "$goos" = windows ]; then ext=".exe"; fi
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+              -ldflags "-s -w -X main.VERSION=${version}" \
+              -o "tuya-ipc-terminal-${goos}-${goarch}${ext}" .
           done
-          sha256sum tuya-ipc-terminal-linux-* > SHA256SUMS
+          sha256sum tuya-ipc-terminal-* > SHA256SUMS
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -52,4 +57,4 @@ jobs:
             notes=(--generate-notes)
           fi
           gh release create "$TAG" --verify-tag "${notes[@]}" --title "$TAG" \
-            tuya-ipc-terminal-linux-* SHA256SUMS
+            tuya-ipc-terminal-* SHA256SUMS

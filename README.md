@@ -80,7 +80,24 @@ chmod +x build.sh
 ./build.sh
 ```
 
-Each tagged release also provides prebuilt Linux binaries (amd64, arm64, armv7) with a `SHA256SUMS` file on the [Releases page](https://github.com/YaannnTech/tuya-ipc-terminal/releases), and a multi-arch container image:
+Each tagged release also provides prebuilt binaries with a `SHA256SUMS` file on the [Releases page](https://github.com/YaannnTech/tuya-ipc-terminal/releases), and a multi-arch container image. Pick the binary for your system:
+
+| File | System |
+|---|---|
+| `tuya-ipc-terminal-linux-amd64` | Linux on a 64-bit PC (Intel/AMD) |
+| `tuya-ipc-terminal-linux-arm64` | Linux on ARM 64-bit, e.g. Raspberry Pi 4/5 with a 64-bit OS |
+| `tuya-ipc-terminal-linux-arm` | Linux on ARMv7 32-bit, e.g. Raspberry Pi 2 or later with a 32-bit OS |
+| `tuya-ipc-terminal-windows-amd64.exe` | Windows on a 64-bit PC (Intel/AMD) |
+| `tuya-ipc-terminal-windows-arm64.exe` | Windows on ARM 64-bit |
+| `tuya-ipc-terminal-darwin-arm64` | macOS on Apple silicon |
+| `tuya-ipc-terminal-darwin-amd64` | macOS on Intel |
+
+Windows and macOS binaries are included from the first release after 0.4.0 on. On Linux and macOS, make the downloaded file executable with `chmod +x <file>`.
+
+- **Windows:** `rtsp stop` ends the server with a hard kill, because Windows has no SIGTERM for console processes in another process group, so streams are not shut down cleanly. The Windows binaries compile in CI but have not been run on Windows yet.
+- **macOS:** The binaries are not signed with a Developer ID or notarized. If macOS blocks a downloaded binary, remove its quarantine flag: `xattr -d com.apple.quarantine <file>`. They compile in CI but have not been run on a Mac.
+
+The container image:
 
 ```bash
 docker run --rm -it -v ./tuya-data:/data/.tuya-data ghcr.io/yaannntech/tuya-ipc-terminal:latest --help

@@ -8,6 +8,13 @@ are releases of the original project,
 
 ## [Unreleased]
 
+### Added
+
+- Releases now include binaries for Windows (amd64, arm64) and macOS
+  (arm64, amd64) in `SHA256SUMS`, and CI builds all of them. They are
+  not signed with a Developer ID or notarized, and have not been run on
+  Windows or macOS yet (#28).
+
 ## [0.4.0] - 2026-11-25
 
 ### Added
