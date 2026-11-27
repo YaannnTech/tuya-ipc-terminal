@@ -15,6 +15,14 @@ are releases of the original project,
   not signed with a Developer ID or notarized, and have not been run on
   Windows or macOS yet (#28).
 
+### Fixed
+
+- On Windows, `rtsp stop` and `rtsp status` now detect that the server
+  has exited even while a handle to it is open, and no longer treat a
+  PID that a different executable reused as the server (the check
+  compares executable names only). A new CI job runs the Windows process
+  tests on `windows-latest` (#28).
+
 ## [0.4.0] - 2026-11-25
 
 ### Added

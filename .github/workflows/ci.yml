@@ -35,6 +35,17 @@ jobs:
       - name: go test
         run: go test -race ./...
 
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: go test (Windows process handling)
+        run: go test -run Windows ./cmd/rtsp/
+
   build:
     runs-on: ubuntu-latest
     strategy:
