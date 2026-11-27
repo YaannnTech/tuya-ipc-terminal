@@ -147,7 +147,11 @@ func runStartServer(cmd *cobra.Command, args []string) error {
 	}
 
 	pid := os.Getpid()
-	if err := writeServerRecord(dataDir, serverRecord{PID: pid, Port: port, Address: address, Started: time.Now()}); err != nil {
+	identity, err := processIdentity(pid)
+	if err != nil {
+		core.Logger.Warn().Err(err).Msg("Could not read process identity; PID reuse checks will use the fallback")
+	}
+	if err := writeServerRecord(dataDir, serverRecord{PID: pid, Port: port, Address: address, Started: time.Now(), ProcStart: identity}); err != nil {
 		core.Logger.Warn().Err(err).
 			Msg("Could not write the PID file; rtsp stop and rtsp status will not find this server")
 	}

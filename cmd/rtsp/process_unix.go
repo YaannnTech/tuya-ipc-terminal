@@ -20,16 +20,22 @@ func processExists(pid int) bool {
 	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// isServerProcess reports whether pid is a running "rtsp start" process. Where
-// /proc is available it checks the command line, so a PID that was reused by
-// another program after a crash is not mistaken for the server.
-func isServerProcess(pid int) bool {
-	if !processExists(pid) {
+// isServerProcess reports whether the record identifies a running server.
+// When /proc is readable, the command line must contain "rtsp" and "start".
+func isServerProcess(rec serverRecord) bool {
+	if !processExists(rec.PID) {
 		return false
 	}
-	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if rec.ProcStart != "" {
+		identity, err := processIdentity(rec.PID)
+		if !matchesProcessIdentity(rec.ProcStart, identity, err) {
+			return false
+		}
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", rec.PID))
 	if err != nil {
-		return true // no /proc (e.g. macOS): trust the record
+		// No /proc (e.g. macOS), or cmdline unavailable: Trust the record.
+		return true
 	}
 	args := strings.Split(string(cmdline), "\x00")
 	hasRTSP, hasStart := false, false
@@ -40,6 +46,12 @@ func isServerProcess(pid int) bool {
 	return hasRTSP && hasStart
 }
 
-func terminateProcess(pid int) error {
-	return syscall.Kill(pid, syscall.SIGTERM)
+// terminateProcess checks the record again and then signals the PID. If the
+// server exits in the short time between the check and the signal and its
+// PID is reused at once, the signal can still reach the new process.
+func terminateProcess(rec serverRecord) error {
+	if !isServerProcess(rec) {
+		return fmt.Errorf("process %d no longer matches the server record", rec.PID)
+	}
+	return syscall.Kill(rec.PID, syscall.SIGTERM)
 }
